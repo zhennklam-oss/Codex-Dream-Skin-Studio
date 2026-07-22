@@ -99,6 +99,7 @@ function createStudioState(client: CommandClient): StateCreator<StudioState> {
   return (set, get) => {
     let initialization: Promise<boolean> | null = null;
     let environmentRefresh: Promise<boolean> | null = null;
+    let runtimeRefresh: Promise<boolean> | null = null;
     let runtimeMutation: RuntimeMutation | null = null;
     const fail = (error: unknown): false => {
       set({ error: errorPayload(error), busyAction: null });
@@ -244,7 +245,7 @@ function createStudioState(client: CommandClient): StateCreator<StudioState> {
           try {
             const [environment, initialRuntime, settings, themes] = await Promise.all([
               client.getEnvironmentStatus(),
-              client.getRuntimeStatus(),
+              client.reconcileRuntime(),
               client.getAppSettings(),
               client.listThemes(),
             ]);
@@ -479,18 +480,24 @@ function createStudioState(client: CommandClient): StateCreator<StudioState> {
         }
       },
 
-      refreshRuntime: async () => {
-        try {
-          const runtime = await client.getRuntimeStatus();
-          set((state) => ({
-            runtime,
-            activationPending: themeNeedsActivation(state.selected, runtime),
-            error: null,
-          }));
-          return true;
-        } catch (error) {
-          return fail(error);
-        }
+      refreshRuntime: () => {
+        if (runtimeRefresh) return runtimeRefresh;
+        runtimeRefresh = (async () => {
+          try {
+            const runtime = await client.reconcileRuntime();
+            set((state) => ({
+              runtime,
+              activationPending: themeNeedsActivation(state.selected, runtime),
+              error: null,
+            }));
+            return true;
+          } catch (error) {
+            return fail(error);
+          } finally {
+            runtimeRefresh = null;
+          }
+        })();
+        return runtimeRefresh;
       },
       startSkin: (confirmRestart = false) => runRuntimeAction(
         "start-skin",

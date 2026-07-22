@@ -28,7 +28,6 @@ try {
     'archive', '--format=tar', "--output=$temporaryArchive", 'HEAD', '--', '.',
     ':(exclude)docs/verification/**',
     ':(exclude)docs/superpowers/**',
-    ':(exclude).cargo-target-cache-20260721/**',
     ':(exclude)node_modules/**',
     ':(exclude)src-tauri/target/**'
   )

@@ -10,20 +10,22 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (relative) => fs.readFile(path.join(root, relative), "utf8");
 
-test("Cargo output stays in the ignored repository-local D-drive cache", async () => {
-  const [config, ignore, bundleScript, liveScript] = await Promise.all([
-    read(".cargo/config.toml"),
+test("Cargo and Tauri use the standard src-tauri target directory", async () => {
+  const [ignore, bundleScript, liveScript, snapshotScript] = await Promise.all([
     read(".gitignore"),
     read("tests/acceptance/bundle-payload.test.ps1"),
     read("tests/acceptance/runtime-lifecycle-live.ps1"),
+    read("scripts/create-public-snapshot.ps1"),
   ]);
-  assert.match(config, /target-dir\s*=\s*"\.cargo-target-cache-20260721"/);
-  assert.match(ignore, /^\.cargo-target-cache-20260721\/$/m);
+  await assert.rejects(fs.stat(path.join(root, ".cargo/config.toml")), { code: "ENOENT" });
+  assert.doesNotMatch(ignore, /^\.cargo-target-cache-20260721\/$/m);
+  assert.match(ignore, /^src-tauri\/target\/$/m);
   assert.match(ignore, /^docs\/verification\/studio-dom\.json$/m);
   assert.match(ignore, /^docs\/verification\/studio-main\.png$/m);
   assert.match(ignore, /^docs\/verification\/runtime-lifecycle-reconciliation\.json$/m);
-  assert.match(bundleScript, /\.cargo-target-cache-20260721[\\/]release/);
-  assert.match(liveScript, /\.cargo-target-cache-20260721[\\/]release[\\/]bundle[\\/]nsis/);
+  assert.match(bundleScript, /src-tauri[\\/]target[\\/]release/);
+  assert.match(liveScript, /src-tauri[\\/]target[\\/]release[\\/]bundle[\\/]nsis/);
+  assert.doesNotMatch(snapshotScript, /\.cargo-target-cache-20260721/);
 });
 
 test("personal verification captures are not tracked for publication", () => {
@@ -103,7 +105,7 @@ test("public documentation is bilingual, current, and explicitly unofficial", as
     assert.match(section, /npm run tauri build/);
     assert.match(
       section,
-      /\.cargo-target-cache-20260721\\release\\bundle\\nsis\\Codex Dream Skin Studio_0\.1\.0_x64-setup\.exe/,
+      /src-tauri\\target\\release\\bundle\\nsis\\Codex Dream Skin Studio_0\.1\.0_x64-setup\.exe/,
     );
   }
 

@@ -83,7 +83,7 @@ npm run tauri build
 Cargo/Tauri 输出保存在仓库内受忽略的构建目录中。生成的 Windows 安装包路径为：
 
 ```text
-.cargo-target-cache-20260721\release\bundle\nsis\Codex Dream Skin Studio_0.1.0_x64-setup.exe
+src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.1.0_x64-setup.exe
 ```
 
 ### 测试
@@ -201,7 +201,7 @@ npm run tauri build
 Cargo/Tauri output stays in the ignored repository-local build directory. The generated Windows installer is located at:
 
 ```text
-.cargo-target-cache-20260721\release\bundle\nsis\Codex Dream Skin Studio_0.1.0_x64-setup.exe
+src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.1.0_x64-setup.exe
 ```
 
 ### Tests

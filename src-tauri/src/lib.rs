@@ -5,7 +5,8 @@ pub mod services;
 pub mod tray;
 
 use commands::runtime::{
-    get_runtime_status, pause_skin, restore_official_appearance, resume_skin, start_skin, stop_skin,
+    get_runtime_status, pause_skin, reconcile_runtime, restore_official_appearance, resume_skin,
+    start_skin, stop_skin,
 };
 use commands::settings::{get_app_settings, update_app_settings};
 use commands::system::{get_environment_status, open_log_directory};
@@ -57,6 +58,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_environment_status,
             get_runtime_status,
+            reconcile_runtime,
             start_skin,
             pause_skin,
             resume_skin,

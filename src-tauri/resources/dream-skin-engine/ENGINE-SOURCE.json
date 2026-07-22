@@ -12,10 +12,10 @@
     { "path": "scripts/common-windows.ps1", "sha256": "45c09a12a875f32c7c38d4261c9091608c9ff36a7c02383db97441c73715d18f" },
     { "path": "scripts/config-utf8.ps1", "sha256": "148fa682db7c451a1e72498f9b623d6a21310e15809f3b1f766e98ae6e578052" },
     { "path": "scripts/image-metadata.mjs", "sha256": "5db49cac97f513888e1697ca8361c8096413a8834df2c1b5286e9e8af51ad344" },
-    { "path": "scripts/injector.mjs", "sha256": "107c9642b17033a94bdb183566e08c5c59b836afd9a4c3113445de69c9c9360f" },
+    { "path": "scripts/injector.mjs", "sha256": "76325ce2b201733412a1e1d4b1c1c76ca615c3debb8d6c2d1b92f031c02621d4" },
     { "path": "scripts/install-dream-skin.ps1", "sha256": "6282cb5ab6c1c75b3a6ec65185a344c29ae22d2f80f719a99dda4c70b5a16766" },
     { "path": "scripts/restore-dream-skin.ps1", "sha256": "0ea84227b6ac44f26c11b4892836172132e433cf75a3bf6c4857aeaace0019c6" },
-    { "path": "scripts/start-dream-skin.ps1", "sha256": "5809080f9c4e2ee82f8d8e20d1c484f4abb28dfb0922cadfd41613f5d57ff7c3" },
+    { "path": "scripts/start-dream-skin.ps1", "sha256": "d786f65ece0557d37a6d8d3bdd4af46c0d39bfbc64905358def0588acc5a2724" },
     { "path": "scripts/tray-dream-skin.ps1", "sha256": "5fc2c39c41ee2673911a6393b82ee44d012284a142123bb7ae7b0f65fb6c72e7" },
     { "path": "scripts/theme-windows.ps1", "sha256": "041fd87db50cbe112d71d01d216f204e657d7334df1834f43b901099d4136b72" },
     { "path": "scripts/verify-dream-skin.ps1", "sha256": "cbf603efe53412bc375bb40513da1d9bfaf411ebe798b8bf3202da3c0a082da3" }

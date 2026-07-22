@@ -5,6 +5,7 @@ param(
   [switch]$PromptRestart,
   [string]$ProfilePath,
   [string]$NodePath,
+  [switch]$RecoverWatcherOnly,
   [switch]$ForegroundInjector
 )
 
@@ -64,6 +65,7 @@ try {
   $StdoutPath = Join-Path $StateRoot 'injector.log'
   $StderrPath = Join-Path $StateRoot 'injector-error.log'
   $VerifyPath = Join-Path $StateRoot 'verify.log'
+  $HeartbeatPath = Join-Path $StateRoot 'watcher-heartbeat.json'
   $themePaths = Initialize-DreamSkinThemeStore -SkillRoot (Split-Path -Parent $PSScriptRoot) -StateRoot $StateRoot
   $pauseWasSet = Test-DreamSkinPaused -StateRoot $StateRoot
   $rendererPending = $false
@@ -113,6 +115,10 @@ try {
         $currentProcesses = $savedProcesses
       }
     }
+  }
+  if ($RecoverWatcherOnly -and $null -eq $cdpIdentity) {
+    Write-Warning 'Watcher-only recovery skipped because the saved Codex CDP identity is unavailable.'
+    exit 4
   }
   $debugReady = $null -ne $cdpIdentity
   $codexProcesses = if (Test-DreamSkinPathEqual -Left $codexToStop.Executable -Right $currentCodex.Executable) {
@@ -200,10 +206,14 @@ try {
     throw
   }
 
-  # Keep a paused, already-running watcher paused until all state checks and any
-  # restart consent have succeeded.  A cancelled prompt must be side-effect free.
-  Set-DreamSkinPaused -Paused $false -StateRoot $StateRoot | Out-Null
-  $pauseCleared = $true
+  # Normal start/resume activates the skin. Watcher-only recovery preserves an
+  # intentional pause while replacing only the unhealthy watcher process.
+  $preservePausedState = [bool]($RecoverWatcherOnly -and $pauseWasSet)
+  $pauseCleared = $false
+  if (-not $preservePausedState) {
+    Set-DreamSkinPaused -Paused $false -StateRoot $StateRoot | Out-Null
+    $pauseCleared = $true
+  }
 
   if ($ForegroundInjector) {
     try {
@@ -211,7 +221,8 @@ try {
       Exit-DreamSkinOperationLock -Mutex $operationLock
       $operationLock = $null
       & $node.Path $Injector --watch --port $Port --browser-id $cdpIdentity.BrowserId `
-        --theme-dir $themePaths.Active --pause-file $themePaths.PauseFile
+        --theme-dir $themePaths.Active --pause-file $themePaths.PauseFile `
+        --heartbeat-file $HeartbeatPath
       $foregroundExitCode = $LASTEXITCODE
       if ($foregroundExitCode -ne 0 -and $pauseWasSet) {
         Set-DreamSkinPaused -Paused $true -StateRoot $StateRoot | Out-Null
@@ -233,7 +244,8 @@ try {
     $injectorArgs = @((ConvertTo-DreamSkinProcessArgument -Value $Injector), '--watch', '--port', "$Port",
       '--browser-id', $cdpIdentity.BrowserId, '--theme-dir',
       (ConvertTo-DreamSkinProcessArgument -Value $themePaths.Active), '--pause-file',
-      (ConvertTo-DreamSkinProcessArgument -Value $themePaths.PauseFile))
+      (ConvertTo-DreamSkinProcessArgument -Value $themePaths.PauseFile), '--heartbeat-file',
+      (ConvertTo-DreamSkinProcessArgument -Value $HeartbeatPath))
     $daemon = Start-Process -FilePath $node.Path -ArgumentList $injectorArgs -WindowStyle Hidden -PassThru `
       -RedirectStandardOutput $StdoutPath -RedirectStandardError $StderrPath
     Start-Sleep -Milliseconds 500

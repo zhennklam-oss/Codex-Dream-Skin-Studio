@@ -5,7 +5,6 @@ src-tauri/target/
 src-tauri/gen/schemas/
 *.log
 .DS_Store
-.cargo-target-cache-20260721/
 docs/verification/studio-dom.json
 docs/verification/studio-main.png
 docs/verification/runtime-lifecycle-reconciliation.json

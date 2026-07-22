@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readImageMetadata } from "./image-metadata.mjs";
@@ -75,6 +75,7 @@ function parseArgs(argv) {
     browserId: null,
     themeDir: path.join(root, "assets"),
     pauseFile: null,
+    heartbeatFile: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -87,6 +88,7 @@ function parseArgs(argv) {
     else if (arg === "--browser-id") options.browserId = argv[++i];
     else if (arg === "--theme-dir") options.themeDir = path.resolve(argv[++i]);
     else if (arg === "--pause-file") options.pauseFile = path.resolve(argv[++i]);
+    else if (arg === "--heartbeat-file") options.heartbeatFile = path.resolve(argv[++i]);
     else if (arg === "--screenshot") options.screenshot = path.resolve(argv[++i]);
     else if (arg === "--reload") options.reload = true;
     else if (arg === "--self-test") options.mode = "self-test";
@@ -105,7 +107,28 @@ function parseArgs(argv) {
   if (["watch", "once", "verify", "remove"].includes(options.mode) && !options.browserId) {
     throw new Error(`--browser-id is required in ${options.mode} mode`);
   }
+  if (options.mode === "watch" && !options.heartbeatFile) {
+    throw new Error("--heartbeat-file is required in watch mode");
+  }
   return options;
+}
+
+export async function writeWatcherHeartbeat(filePath, updatedAt = Date.now(), processId = process.pid) {
+  const temporary = `${filePath}.${processId}.${randomUUID()}.tmp`;
+  await fs.writeFile(temporary, `${JSON.stringify({ processId, updatedAt })}\n`, {
+    encoding: "utf8",
+    flag: "wx",
+  });
+  await fs.rename(temporary, filePath);
+}
+
+export async function removeWatcherHeartbeat(filePath, processId = process.pid) {
+  try {
+    const heartbeat = JSON.parse(await fs.readFile(filePath, "utf8"));
+    if (heartbeat.processId === processId) await fs.rm(filePath, { force: true });
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
 }
 
 function validatedDebuggerUrl(target, port) {
@@ -1132,6 +1155,7 @@ async function runWatch(options) {
           rejectTarget(target, 2500, error);
         }
       }
+      await writeWatcherHeartbeat(options.heartbeatFile);
       await new Promise((resolve) => setTimeout(resolve, 1200));
     }
   } finally {
@@ -1143,6 +1167,7 @@ async function runWatch(options) {
     earlyScripts.clear();
     fallbackTargets.clear();
     fallbackListeners.clear();
+    await removeWatcherHeartbeat(options.heartbeatFile);
   }
 }
 

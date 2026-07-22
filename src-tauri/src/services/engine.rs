@@ -10,12 +10,13 @@ use std::{
     process::{Command, Stdio},
     sync::Arc,
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Mutex as TokioMutex;
 use uuid::Uuid;
 
 const ENGINE_MANIFEST: &str = "ENGINE-SOURCE.json";
+const WATCHER_HEARTBEAT_STALE_AFTER: Duration = Duration::from_secs(30);
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -85,6 +86,13 @@ pub struct RuntimeStatus {
     pub active_theme_name: Option<String>,
     pub requires_restart_confirmation: bool,
     pub last_error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WatcherHeartbeat {
+    process_id: u32,
+    updated_at: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -505,8 +513,41 @@ impl EngineRuntime {
         self.resolve_runtime_transition(result, start_target_reached, "Start Dream Skin")
     }
 
+    pub async fn reconcile_runtime(&self) -> StudioResult<RuntimeStatus> {
+        let _guard = self.mutation_lock.lock().await;
+        self.reconcile_runtime_locked()
+    }
+
+    fn reconcile_runtime_locked(&self) -> StudioResult<RuntimeStatus> {
+        let current = self.get_runtime_status()?;
+        if !self.state_root.join("state.json").is_file() || !self.watcher_heartbeat_is_stale_now() {
+            return Ok(current);
+        }
+        let output = self.run_powershell_script(
+            "start-dream-skin.ps1",
+            &[OsString::from("-RecoverWatcherOnly")],
+        )?;
+        if output.exit_code == 4 {
+            return Ok(current);
+        }
+        ensure_process_success("Recover Dream Skin watcher", output)?;
+        self.get_runtime_status()
+    }
+
+    fn watcher_heartbeat_is_stale_now(&self) -> bool {
+        let Ok(elapsed) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+            return true;
+        };
+        watcher_heartbeat_is_stale(
+            &self.state_root.join("watcher-heartbeat.json"),
+            elapsed.as_millis() as u64,
+            WATCHER_HEARTBEAT_STALE_AFTER.as_millis() as u64,
+        )
+    }
+
     pub async fn pause_skin(&self) -> StudioResult<RuntimeStatus> {
         let _guard = self.mutation_lock.lock().await;
+        self.reconcile_runtime_locked()?;
         fs::create_dir_all(&self.state_root).map_err(|error| {
             StudioError::io("Failed to create Dream Skin state directory", error)
         })?;
@@ -523,7 +564,7 @@ impl EngineRuntime {
     pub async fn resume_skin(&self) -> StudioResult<RuntimeStatus> {
         let _guard = self.mutation_lock.lock().await;
         let marker = self.state_root.join("paused");
-        let current = self.get_runtime_status()?;
+        let current = self.reconcile_runtime_locked()?;
         if !marker.exists() {
             return Ok(current);
         }
@@ -847,6 +888,18 @@ fn read_state_port(path: &Path) -> StudioResult<Option<u16>> {
             })
         }
     }
+}
+
+fn watcher_heartbeat_is_stale(path: &Path, now_ms: u64, stale_after_ms: u64) -> bool {
+    let heartbeat = fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<WatcherHeartbeat>(&bytes).ok());
+    let Some(heartbeat) = heartbeat else {
+        return true;
+    };
+    heartbeat.process_id == 0
+        || heartbeat.updated_at > now_ms
+        || now_ms - heartbeat.updated_at > stale_after_ms
 }
 
 fn read_active_theme_identity(state_root: &Path) -> (Option<String>, Option<String>) {
@@ -1593,10 +1646,136 @@ mod runtime_lifecycle_tests {
         collections::VecDeque,
         ffi::OsString,
         path::Path,
-        sync::{Arc, Mutex},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex,
+        },
         time::Duration,
     };
     use tempfile::tempdir;
+
+    #[test]
+    fn watcher_heartbeat_is_stale_when_missing_malformed_or_expired() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("watcher-heartbeat.json");
+        let now_ms = 100_000;
+
+        assert!(watcher_heartbeat_is_stale(&path, now_ms, 30_000));
+        fs::write(&path, b"not-json").unwrap();
+        assert!(watcher_heartbeat_is_stale(&path, now_ms, 30_000));
+        fs::write(&path, br#"{"processId":7,"updatedAt":69999}"#).unwrap();
+        assert!(watcher_heartbeat_is_stale(&path, now_ms, 30_000));
+        fs::write(&path, br#"{"processId":7,"updatedAt":70000}"#).unwrap();
+        assert!(!watcher_heartbeat_is_stale(&path, now_ms, 30_000));
+    }
+
+    fn write_fresh_watcher_heartbeat(state_root: &Path) {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        fs::write(
+            state_root.join("watcher-heartbeat.json"),
+            format!(r#"{{"processId":7,"updatedAt":{now_ms}}}"#),
+        )
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn stale_watcher_is_restarted_without_codex_restart_permission() {
+        let root = tempdir().unwrap();
+        let engine = root.path().join("engine");
+        fs::create_dir_all(engine.join("scripts")).unwrap();
+        let state = root.path().join("state");
+        fs::create_dir_all(&state).unwrap();
+        fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
+        fs::write(
+            state.join("watcher-heartbeat.json"),
+            br#"{"processId":7,"updatedAt":1}"#,
+        )
+        .unwrap();
+        let inactive = ProcessOutput {
+            exit_code: 1,
+            stdout: String::new(),
+            stderr: "No verified Codex CDP endpoint is active on loopback port 9335.".into(),
+        };
+        let runner = Arc::new(RecordingRunner::new(vec![
+            ProcessOutput::success("ChatGPT.exe,1234"),
+            inactive,
+            ProcessOutput::success("watcher recovered"),
+            ProcessOutput::success("ChatGPT.exe,1234"),
+            ProcessOutput::success("skin verified"),
+        ]));
+        let runtime =
+            EngineRuntime::with_runner(engine, state, runner.clone(), Duration::from_secs(2));
+
+        let status = runtime.reconcile_runtime().await.unwrap();
+
+        assert!(status.skin_active);
+        let calls = runner.calls();
+        assert!(calls
+            .iter()
+            .any(|call| call.1.contains(&OsString::from("-RecoverWatcherOnly"))));
+        assert!(!calls
+            .iter()
+            .any(|call| call.1.contains(&OsString::from("-RestartExisting"))));
+    }
+
+    #[tokio::test]
+    async fn unavailable_cdp_skips_watcher_recovery_without_surface_error() {
+        let root = tempdir().unwrap();
+        let engine = root.path().join("engine");
+        fs::create_dir_all(engine.join("scripts")).unwrap();
+        let state = root.path().join("state");
+        fs::create_dir_all(&state).unwrap();
+        fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
+        let inactive = ProcessOutput {
+            exit_code: 1,
+            stdout: String::new(),
+            stderr: "No verified Codex CDP endpoint is active on loopback port 9335.".into(),
+        };
+        let runner = Arc::new(RecordingRunner::new(vec![
+            ProcessOutput::success("ChatGPT.exe,1234"),
+            inactive,
+            ProcessOutput {
+                exit_code: 4,
+                stdout: String::new(),
+                stderr: "saved Codex CDP identity is unavailable".into(),
+            },
+        ]));
+        let runtime = EngineRuntime::with_runner(engine, state, runner, Duration::from_secs(2));
+
+        let status = runtime.reconcile_runtime().await.unwrap();
+
+        assert!(status.requires_restart_confirmation);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn queued_reconciliation_rechecks_heartbeat_inside_the_lock() {
+        let root = tempdir().unwrap();
+        let engine = root.path().join("engine");
+        fs::create_dir_all(engine.join("scripts")).unwrap();
+        let state = root.path().join("state");
+        fs::create_dir_all(&state).unwrap();
+        fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
+        let runner = Arc::new(HeartbeatRecoveryRunner::new(state.clone()));
+        let runtime = Arc::new(EngineRuntime::with_runner(
+            engine,
+            state,
+            runner.clone(),
+            Duration::from_secs(2),
+        ));
+
+        let first_runtime = runtime.clone();
+        let first = tokio::spawn(async move { first_runtime.reconcile_runtime().await });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let second_runtime = runtime.clone();
+        let second = tokio::spawn(async move { second_runtime.reconcile_runtime().await });
+
+        assert!(first.await.unwrap().unwrap().skin_active);
+        assert!(second.await.unwrap().unwrap().skin_active);
+        assert_eq!(runner.recoveries.load(Ordering::SeqCst), 1);
+    }
 
     fn version_mismatch_output() -> ProcessOutput {
         ProcessOutput {
@@ -2811,6 +2990,7 @@ mod runtime_lifecycle_tests {
         fs::create_dir_all(state.join("active-theme")).unwrap();
         fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
         fs::write(state.join("paused"), b"paused\r\n").unwrap();
+        write_fresh_watcher_heartbeat(&state);
         fs::write(
             state.join("active-theme").join("theme.json"),
             br#"{"id":"yingying","name":"Yingying"}"#,
@@ -2851,6 +3031,7 @@ mod runtime_lifecycle_tests {
         let state = root.path().join("state");
         fs::create_dir_all(&state).unwrap();
         let runner = Arc::new(RecordingRunner::new(vec![
+            ProcessOutput::success("INFO: No tasks are running"),
             ProcessOutput::success("INFO: No tasks are running"),
             ProcessOutput::success("INFO: No tasks are running"),
             ProcessOutput::success("INFO: No tasks are running"),
@@ -2912,6 +3093,8 @@ mod runtime_lifecycle_tests {
         let runner = Arc::new(RecordingRunner::new(vec![
             ProcessOutput::success("INFO: No tasks are running"),
             ProcessOutput::success("INFO: No tasks are running"),
+            ProcessOutput::success("INFO: No tasks are running"),
+            ProcessOutput::success("INFO: No tasks are running"),
         ]));
         let runtime = EngineRuntime::with_runner(
             root.path().join("engine"),
@@ -2932,6 +3115,65 @@ mod runtime_lifecycle_tests {
         let runtime = EngineRuntime::new(state_root.join("engine"), state_root);
         println!("environment={:?}", EngineService::environment_status());
         println!("runtime={:?}", runtime.get_runtime_status().unwrap());
+    }
+
+    struct HeartbeatRecoveryRunner {
+        state_root: PathBuf,
+        recoveries: AtomicUsize,
+    }
+
+    impl HeartbeatRecoveryRunner {
+        fn new(state_root: PathBuf) -> Self {
+            Self {
+                state_root,
+                recoveries: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl ProcessRunner for HeartbeatRecoveryRunner {
+        fn run(
+            &self,
+            program: &Path,
+            arguments: &[OsString],
+            _timeout: Duration,
+        ) -> StudioResult<ProcessOutput> {
+            if program == Path::new("tasklist.exe") {
+                return Ok(ProcessOutput::success("ChatGPT.exe,1234"));
+            }
+            if arguments.contains(&OsString::from("-RecoverWatcherOnly")) {
+                thread::sleep(Duration::from_millis(50));
+                let now_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64;
+                fs::write(
+                    self.state_root.join("watcher-heartbeat.json"),
+                    format!(r#"{{"processId":77,"updatedAt":{now_ms}}}"#),
+                )
+                .unwrap();
+                self.recoveries.fetch_add(1, Ordering::SeqCst);
+                return Ok(ProcessOutput::success("watcher recovered"));
+            }
+            if arguments
+                .iter()
+                .any(|argument| argument.to_string_lossy().contains("verify-dream-skin.ps1"))
+            {
+                if self.recoveries.load(Ordering::SeqCst) == 0 {
+                    return Ok(ProcessOutput {
+                        exit_code: 1,
+                        stdout: String::new(),
+                        stderr: "No verified Codex CDP endpoint is active on loopback port 9335."
+                            .into(),
+                    });
+                }
+                return Ok(ProcessOutput::success("skin verified"));
+            }
+            Err(StudioError::new(
+                "UNEXPECTED_FAKE_COMMAND",
+                "Unexpected fake process invocation",
+            ))
+        }
     }
 
     struct RecordingRunner {

@@ -4,7 +4,7 @@ use crate::{
         status::{ImageMetadata, ThemeDetail, ThemeSummary},
         theme::ThemeDocument,
     },
-    services::{image::validate_image, theme_repository::ThemeRepository},
+    services::{engine::EngineRuntime, image::validate_image, theme_repository::ThemeRepository},
 };
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -89,11 +89,14 @@ pub fn delete_theme(
 }
 
 #[tauri::command]
-pub fn apply_theme(
+pub async fn apply_theme(
     request: ApplyThemeRequest,
     repository: State<'_, ThemeRepository>,
+    runtime: State<'_, EngineRuntime>,
 ) -> StudioResult<ThemeDetail> {
-    repository.apply(request.theme, request.source_image.as_deref())
+    let applied = repository.apply(request.theme, request.source_image.as_deref())?;
+    runtime.reconcile_runtime().await?;
+    Ok(applied)
 }
 
 #[tauri::command]

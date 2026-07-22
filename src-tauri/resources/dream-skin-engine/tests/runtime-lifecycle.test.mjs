@@ -6,11 +6,58 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs/promises";
+import os from "node:os";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const injectorPath = path.resolve(here, "../scripts/injector.mjs");
 const injectorUrl = pathToFileURL(injectorPath).href;
 const startScriptPath = path.resolve(here, "../scripts/start-dream-skin.ps1");
+
+test("watcher heartbeat replacement and cleanup preserve the current owner", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "dream-skin-heartbeat-"));
+  const heartbeat = path.join(directory, "watcher-heartbeat.json");
+  const { writeWatcherHeartbeat, removeWatcherHeartbeat } = await import(injectorUrl);
+
+  try {
+    await writeWatcherHeartbeat(heartbeat, 1_000, 101);
+    assert.deepEqual(JSON.parse(await fs.readFile(heartbeat, "utf8")), {
+      processId: 101,
+      updatedAt: 1_000,
+    });
+    await writeWatcherHeartbeat(heartbeat, 2_000, 202);
+    await removeWatcherHeartbeat(heartbeat, 101);
+    assert.equal(JSON.parse(await fs.readFile(heartbeat, "utf8")).processId, 202);
+    await removeWatcherHeartbeat(heartbeat, 202);
+    await assert.rejects(fs.stat(heartbeat), { code: "ENOENT" });
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("watcher-only recovery refuses to stop or launch Codex without a verified identity", async () => {
+  const startScript = await fs.readFile(startScriptPath, "utf8");
+  const guard = startScript.indexOf("if ($RecoverWatcherOnly -and $null -eq $cdpIdentity)");
+  const stop = startScript.indexOf("Stop-DreamSkinCodex");
+  const launch = startScript.indexOf("Start-DreamSkinCodex");
+
+  assert.ok(guard >= 0, "watcher-only recovery guard is missing");
+  assert.ok(guard < stop, "watcher-only guard must run before Codex can be stopped");
+  assert.ok(guard < launch, "watcher-only guard must run before Codex can be launched");
+  assert.match(startScript, /exit\s+4/);
+});
+
+test("watcher-only recovery preserves an existing paused state", async () => {
+  const startScript = await fs.readFile(startScriptPath, "utf8");
+
+  assert.match(
+    startScript,
+    /\$preservePausedState\s*=\s*\[bool\]\(\$RecoverWatcherOnly\s*-and\s*\$pauseWasSet\)/,
+  );
+  assert.match(
+    startScript,
+    /if\s*\(-not\s+\$preservePausedState\)\s*\{[\s\S]*?Set-DreamSkinPaused\s+-Paused\s+\$false/,
+  );
+});
 
 async function runInjector(args) {
   const child = spawn(process.execPath, [injectorPath, ...args], {

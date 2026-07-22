@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $sourceRoot = (Resolve-Path (Join-Path $projectRoot 'src-tauri\resources\dream-skin-engine')).Path
-$releaseRoot = (Resolve-Path (Join-Path $projectRoot '.cargo-target-cache-20260721\release')).Path
+$releaseRoot = (Resolve-Path (Join-Path $projectRoot 'src-tauri\target\release')).Path
 $bundleRoot = (Resolve-Path (Join-Path $releaseRoot 'resources\dream-skin-engine')).Path
 $installer = Get-ChildItem -LiteralPath (Join-Path $releaseRoot 'bundle\nsis') -Filter '*.exe' -File |
     Sort-Object LastWriteTime -Descending |

@@ -10,6 +10,11 @@ pub fn get_runtime_status(runtime: State<'_, EngineRuntime>) -> StudioResult<Run
 }
 
 #[tauri::command]
+pub async fn reconcile_runtime(runtime: State<'_, EngineRuntime>) -> StudioResult<RuntimeStatus> {
+    runtime.reconcile_runtime().await
+}
+
+#[tauri::command]
 pub async fn start_skin(
     runtime: State<'_, EngineRuntime>,
     confirm_restart: bool,

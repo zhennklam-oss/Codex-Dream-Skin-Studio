@@ -229,6 +229,22 @@ test("runtime lifecycle keeps its published verification budgets", async () => {
   assert.match(start, /'--timeout-ms'\s*,\s*'6000'/);
 });
 
+test("sleep recovery keeps heartbeat and reconciliation wired across layers", async () => {
+  const [injector, startScript, engine, runtimeCommands, frontendCommands] = await Promise.all([
+    fs.readFile(`${engineRoot}/scripts/injector.mjs`, "utf8"),
+    fs.readFile(`${engineRoot}/scripts/start-dream-skin.ps1`, "utf8"),
+    fs.readFile("src-tauri/src/services/engine.rs", "utf8"),
+    fs.readFile("src-tauri/src/commands/runtime.rs", "utf8"),
+    fs.readFile("src/lib/commands.ts", "utf8"),
+  ]);
+
+  assert.match(injector, /--heartbeat-file/);
+  assert.match(startScript, /RecoverWatcherOnly/);
+  assert.match(engine, /reconcile_runtime/);
+  assert.match(runtimeCommands, /reconcile_runtime/);
+  assert.match(frontendCommands, /call\("reconcile_runtime"\)/);
+});
+
 test("runtime verification is read-only while mutations retain the operation mutex", async () => {
   const scripts = await Promise.all(
     ["verify", "start", "restore", "install"].map(async (operation) => [

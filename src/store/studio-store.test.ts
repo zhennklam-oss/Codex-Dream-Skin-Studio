@@ -88,9 +88,12 @@ const summaries: ThemeSummary[] = [
 ];
 
 function makeClient(overrides: Partial<CommandClient> = {}): CommandClient {
+  const getRuntimeStatus = overrides.getRuntimeStatus ?? vi.fn().mockResolvedValue(runtime);
+  const reconcileRuntime = overrides.reconcileRuntime ?? vi.fn(() => getRuntimeStatus());
   return {
     getEnvironmentStatus: vi.fn().mockResolvedValue(environment),
-    getRuntimeStatus: vi.fn().mockResolvedValue(runtime),
+    getRuntimeStatus,
+    reconcileRuntime,
     startSkin: vi.fn().mockResolvedValue(runtime),
     pauseSkin: vi.fn().mockResolvedValue({ ...runtime, paused: true }),
     resumeSkin: vi.fn().mockResolvedValue(runtime),
@@ -118,6 +121,36 @@ async function initializedStore(client = makeClient()) {
 }
 
 describe("studio store", () => {
+  it("uses runtime reconciliation during initialization", async () => {
+    const reconcileRuntime = vi.fn().mockResolvedValue(runtime);
+    const getRuntimeStatus = vi.fn().mockResolvedValue(runtime);
+    const store = createStudioStore(makeClient({ reconcileRuntime, getRuntimeStatus }));
+
+    expect(await store.getState().initialize()).toBe(true);
+    expect(reconcileRuntime).toHaveBeenCalledOnce();
+    expect(getRuntimeStatus).not.toHaveBeenCalled();
+  });
+
+  it("uses one reconciliation request for concurrent runtime refreshes", async () => {
+    let finish: ((value: RuntimeStatus) => void) | undefined;
+    const pending = new Promise<RuntimeStatus>((resolve) => { finish = resolve; });
+    const recovered = { ...runtime, activeThemeName: "Recovered" };
+    const reconcileRuntime = vi.fn()
+      .mockResolvedValueOnce(runtime)
+      .mockReturnValueOnce(pending);
+    const store = createStudioStore(makeClient({ reconcileRuntime }));
+    await store.getState().initialize();
+
+    const first = store.getState().refreshRuntime();
+    const second = store.getState().refreshRuntime();
+
+    expect(second).toBe(first);
+    finish?.(recovered);
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    expect(reconcileRuntime).toHaveBeenCalledTimes(2);
+    expect(store.getState().runtime).toEqual(recovered);
+  });
+
   it("shares one in-flight environment detection and keeps it busy until completion", async () => {
     let finish: ((status: EnvironmentStatus) => void) | undefined;
     const pending = new Promise<EnvironmentStatus>((resolve) => { finish = resolve; });

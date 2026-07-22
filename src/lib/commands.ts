@@ -72,6 +72,7 @@ export interface EnvironmentStatus {
 export interface CommandClient {
   getEnvironmentStatus(): Promise<EnvironmentStatus>;
   getRuntimeStatus(): Promise<RuntimeStatus>;
+  reconcileRuntime(): Promise<RuntimeStatus>;
   startSkin(confirmRestart: boolean): Promise<RuntimeStatus>;
   pauseSkin(): Promise<RuntimeStatus>;
   resumeSkin(): Promise<RuntimeStatus>;
@@ -112,6 +113,7 @@ export function createCommandClient(invoker: CommandInvoker = invoke): CommandCl
   return {
     getEnvironmentStatus: () => call("get_environment_status"),
     getRuntimeStatus: () => call("get_runtime_status"),
+    reconcileRuntime: () => call("reconcile_runtime"),
     startSkin: (confirmRestart) => call("start_skin", { confirmRestart }),
     pauseSkin: () => call("pause_skin"),
     resumeSkin: () => call("resume_skin"),
