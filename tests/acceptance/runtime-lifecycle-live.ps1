@@ -4,7 +4,7 @@ param(
     [string]$OutputPath = 'docs/verification/runtime-lifecycle-reconciliation.json',
     [int]$StudioCdpPort = 9444,
     [string]$StudioExecutable = (Join-Path $env:LOCALAPPDATA 'Codex Dream Skin Studio\Codex Dream Skin Studio.exe'),
-    [string]$InstallerPath = 'src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.1.0_x64-setup.exe',
+    [string]$InstallerPath = 'src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.1.1_x64-setup.exe',
     [int]$LifecycleTimeoutSeconds = 180
 )
 if (-not $AllowLifecycle) {
