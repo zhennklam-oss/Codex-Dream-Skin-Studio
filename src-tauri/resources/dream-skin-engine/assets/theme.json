@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "id": "preset-dream-portal",
   "name": "梦境门户",
   "brandSubtitle": "CODEX DREAM SKIN",
@@ -21,6 +21,7 @@
     "leftSidebarOpacity": 0.78,
     "topBarOpacity": 0.78,
     "rightSidebarOpacity": 0.78,
-    "bottomBarOpacity": 0.78
+    "bottomBarOpacity": 0.78,
+    "inputOpacity": 0.9
   }
 }

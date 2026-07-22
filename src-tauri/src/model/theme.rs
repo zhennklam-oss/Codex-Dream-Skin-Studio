@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-const CURRENT_SCHEMA_VERSION: u8 = 4;
+const CURRENT_SCHEMA_VERSION: u8 = 5;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -85,6 +85,7 @@ pub struct EffectSettings {
     pub top_bar_opacity: f64,
     pub right_sidebar_opacity: f64,
     pub bottom_bar_opacity: f64,
+    pub input_opacity: f64,
     pub tone_mode: ToneMode,
     pub tone_strength: f64,
     pub duotone_shadow: String,
@@ -106,6 +107,7 @@ impl Default for EffectSettings {
             top_bar_opacity: default_interface_opacity(),
             right_sidebar_opacity: default_interface_opacity(),
             bottom_bar_opacity: default_interface_opacity(),
+            input_opacity: default_input_opacity(),
             tone_mode: ToneMode::Original,
             tone_strength: 1.0,
             duotone_shadow: default_duotone_shadow(),
@@ -136,6 +138,7 @@ struct EffectSettingsWire {
     top_bar_opacity: Option<f64>,
     right_sidebar_opacity: Option<f64>,
     bottom_bar_opacity: Option<f64>,
+    input_opacity: Option<f64>,
 }
 
 impl<'de> Deserialize<'de> for EffectSettings {
@@ -151,10 +154,11 @@ impl<'de> Deserialize<'de> for EffectSettings {
             .unwrap_or(interface_opacity);
         let top_bar_opacity = wire.top_bar_opacity.unwrap_or(interface_opacity);
         let right_sidebar_opacity = wire.right_sidebar_opacity.unwrap_or(interface_opacity);
-        let bottom_bar_opacity = wire
-            .bottom_bar_opacity
+        let input_opacity = wire
+            .input_opacity
             .or(wire.composer_opacity)
-            .unwrap_or(interface_opacity);
+            .unwrap_or_else(default_input_opacity);
+        let bottom_bar_opacity = wire.bottom_bar_opacity.unwrap_or(interface_opacity);
         Ok(Self {
             home_opacity: wire.home_opacity.unwrap_or_else(default_home_opacity),
             task_opacity: wire.task_opacity.unwrap_or_else(default_task_opacity),
@@ -167,6 +171,7 @@ impl<'de> Deserialize<'de> for EffectSettings {
             top_bar_opacity,
             right_sidebar_opacity,
             bottom_bar_opacity,
+            input_opacity,
             tone_mode: wire.tone_mode.unwrap_or_default(),
             tone_strength: wire.tone_strength.unwrap_or(1.0),
             duotone_shadow: wire.duotone_shadow.unwrap_or_else(default_duotone_shadow),
@@ -224,7 +229,9 @@ pub struct ThemeDocument {
 
 impl ThemeDocument {
     pub fn from_json(json: &str) -> Result<Self, String> {
-        let mut theme: Self = serde_json::from_str(json).map_err(|error| error.to_string())?;
+        let value = serde_json::from_str(json).map_err(|error| error.to_string())?;
+        let value = migrate_raw_theme(value)?;
+        let mut theme: Self = serde_json::from_value(value).map_err(|error| error.to_string())?;
         if let Some(nested_extra) = theme.extra.remove("extra") {
             let serde_json::Value::Object(nested_extra) = nested_extra else {
                 return Err("extra must be an object".to_owned());
@@ -232,11 +239,6 @@ impl ThemeDocument {
             for (key, value) in nested_extra {
                 theme.extra.entry(key).or_insert(value);
             }
-        }
-        match theme.schema_version {
-            1..=3 => theme.schema_version = CURRENT_SCHEMA_VERSION,
-            CURRENT_SCHEMA_VERSION => {}
-            version => return Err(format!("unsupported schemaVersion: {version}")),
         }
         theme.validate()?;
         Ok(theme)
@@ -307,12 +309,103 @@ impl ThemeDocument {
             0.0,
             1.0,
         )?;
+        validate_range("effects.inputOpacity", self.effects.input_opacity, 0.0, 1.0)?;
         validate_range("effects.toneStrength", self.effects.tone_strength, 0.0, 1.0)?;
         validate_hex_color("effects.duotoneShadow", &self.effects.duotone_shadow)?;
         validate_hex_color("effects.duotoneHighlight", &self.effects.duotone_highlight)?;
         validate_hex_color("effects.washColor", &self.effects.wash_color)?;
         Ok(())
     }
+}
+
+fn migrate_raw_theme(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
+    let source_schema = match value.get("schemaVersion") {
+        Some(schema) => schema
+            .as_u64()
+            .and_then(|schema| u8::try_from(schema).ok())
+            .ok_or_else(|| "schemaVersion must be an integer".to_owned())?,
+        None => default_source_schema_version(),
+    };
+    if !(1..=CURRENT_SCHEMA_VERSION).contains(&source_schema) {
+        return Err(format!("unsupported schemaVersion: {source_schema}"));
+    }
+    if source_schema <= 4 {
+        let effects = value
+            .as_object_mut()
+            .and_then(|theme| {
+                theme
+                    .entry("effects")
+                    .or_insert_with(|| serde_json::json!({}))
+                    .as_object_mut()
+            })
+            .ok_or_else(|| "effects must be an object".to_owned())?;
+        let migrated_interface = migrated_interface_opacity_from_value(effects)?;
+        let migrated_input = effects
+            .get("inputOpacity")
+            .or_else(|| effects.get("composerOpacity"))
+            .or_else(|| effects.get("bottomBarOpacity"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!(default_input_opacity()));
+        effects.insert("inputOpacity".to_owned(), migrated_input);
+        effects.insert(
+            "bottomBarOpacity".to_owned(),
+            serde_json::json!(migrated_interface),
+        );
+    }
+    value["schemaVersion"] = serde_json::json!(CURRENT_SCHEMA_VERSION);
+    Ok(value)
+}
+
+fn read_opacity(
+    effects: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<Option<f64>, String> {
+    let Some(value) = effects.get(key) else {
+        return Ok(None);
+    };
+    let number = value
+        .as_f64()
+        .ok_or_else(|| format!("effects.{key} must be a number"))?;
+    if !(0.0..=1.0).contains(&number) {
+        return Err(format!("effects.{key} must be between 0 and 1"));
+    }
+    Ok(Some(number))
+}
+
+fn migrated_interface_opacity_from_value(
+    effects: &serde_json::Map<String, serde_json::Value>,
+) -> Result<f64, String> {
+    if let Some(value) = read_opacity(effects, "interfaceOpacity")? {
+        return Ok(value);
+    }
+    let mut region_values = Vec::new();
+    for key in [
+        "leftSidebarOpacity",
+        "topBarOpacity",
+        "rightSidebarOpacity",
+        "bottomBarOpacity",
+    ] {
+        if let Some(value) = read_opacity(effects, key)? {
+            region_values.push(value);
+        }
+    }
+    let mut legacy_values = Vec::new();
+    for key in ["sidebarOpacity", "composerOpacity"] {
+        if let Some(value) = read_opacity(effects, key)? {
+            legacy_values.push(value);
+        }
+    }
+    let values = if region_values.is_empty() {
+        legacy_values
+    } else {
+        region_values
+    };
+    let mean = if values.is_empty() {
+        default_interface_opacity()
+    } else {
+        values.iter().sum::<f64>() / values.len() as f64
+    };
+    Ok((mean.clamp(0.0, 1.0) * 10_000.0).round() / 10_000.0)
 }
 
 fn validate_range(field: &str, value: f64, minimum: f64, maximum: f64) -> Result<(), String> {
@@ -362,6 +455,9 @@ const fn default_mask_strength() -> f64 {
 const fn default_interface_opacity() -> f64 {
     0.78
 }
+const fn default_input_opacity() -> f64 {
+    0.9
+}
 fn default_duotone_shadow() -> String {
     "#1C1B22".to_owned()
 }
@@ -387,7 +483,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(theme.schema_version, 4);
+        assert_eq!(theme.schema_version, 5);
         assert_eq!(theme.art.scale, 1.0);
         assert_eq!(theme.effects, EffectSettings::default());
     }
@@ -412,7 +508,8 @@ mod tests {
             assert_eq!(theme.effects.left_sidebar_opacity, 0.31);
             assert_eq!(theme.effects.top_bar_opacity, 0.39);
             assert_eq!(theme.effects.right_sidebar_opacity, 0.39);
-            assert_eq!(theme.effects.bottom_bar_opacity, 0.47);
+            assert_eq!(theme.effects.bottom_bar_opacity, 0.39);
+            assert_eq!(theme.effects.input_opacity, 0.47);
         }
     }
 
@@ -426,12 +523,42 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(theme.schema_version, 4);
+        assert_eq!(theme.schema_version, 5);
         assert_eq!(theme.effects.interface_opacity, 0.3);
         assert_eq!(theme.effects.left_sidebar_opacity, 0.2);
         assert_eq!(theme.effects.top_bar_opacity, 0.4);
         assert_eq!(theme.effects.right_sidebar_opacity, 0.3);
-        assert_eq!(theme.effects.bottom_bar_opacity, 1.0);
+        assert_eq!(theme.effects.bottom_bar_opacity, 0.3);
+        assert_eq!(theme.effects.input_opacity, 1.0);
+    }
+
+    #[test]
+    fn migrates_schema_four_bottom_opacity_to_input_opacity() {
+        let theme = ThemeDocument::from_json(
+            r#"{
+              "schemaVersion":4,"id":"legacy","name":"Legacy","image":"art.jpg",
+              "effects":{"interfaceOpacity":0.61,"bottomBarOpacity":0.27}
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(theme.schema_version, 5);
+        assert_eq!(theme.effects.input_opacity, 0.27);
+        assert_eq!(theme.effects.bottom_bar_opacity, 0.61);
+    }
+
+    #[test]
+    fn preserves_schema_five_input_and_bottom_opacity() {
+        let theme = ThemeDocument::from_json(
+            r#"{
+              "schemaVersion":5,"id":"current","name":"Current","image":"art.jpg",
+              "effects":{"interfaceOpacity":0.61,"bottomBarOpacity":0.42,"inputOpacity":0.83}
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(theme.effects.bottom_bar_opacity, 0.42);
+        assert_eq!(theme.effects.input_opacity, 0.83);
     }
 
     #[test]
@@ -445,23 +572,24 @@ mod tests {
         .unwrap();
 
         let serialized = serde_json::to_value(theme).unwrap();
-        assert_eq!(serialized["schemaVersion"], 4);
+        assert_eq!(serialized["schemaVersion"], 5);
         assert_eq!(serialized["effects"]["interfaceOpacity"], 0.45);
         assert_eq!(serialized["effects"]["leftSidebarOpacity"], 0.2);
         assert_eq!(serialized["effects"]["topBarOpacity"], 0.45);
         assert_eq!(serialized["effects"]["rightSidebarOpacity"], 0.7);
         assert_eq!(serialized["effects"]["bottomBarOpacity"], 0.45);
+        assert_eq!(serialized["effects"]["inputOpacity"], 0.9);
         for key in ["sidebarOpacity", "composerOpacity"] {
             assert!(serialized["effects"].get(key).is_none(), "retained {key}");
         }
     }
 
     #[test]
-    fn rejects_out_of_range_schema_four_interface_opacity() {
+    fn rejects_out_of_range_schema_five_input_opacity() {
         assert!(ThemeDocument::from_json(
             r#"{
-              "schemaVersion":4,"id":"bad","name":"Bad","image":"art.jpg",
-              "effects":{"interfaceOpacity":1.01}
+              "schemaVersion":5,"id":"bad","name":"Bad","image":"art.jpg",
+              "effects":{"inputOpacity":1.01}
             }"#,
         )
         .is_err());
@@ -495,7 +623,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(theme.schema_version, 4);
+        assert_eq!(theme.schema_version, 5);
         assert_eq!(theme.art.scale, 1.0);
     }
 
@@ -533,10 +661,10 @@ mod tests {
     }
 
     #[test]
-    fn default_theme_uses_schema_four_defaults() {
+    fn default_theme_uses_schema_five_defaults() {
         let theme = ThemeDocument::default_for("id", "name", "art.jpg");
 
-        assert_eq!(theme.schema_version, 4);
+        assert_eq!(theme.schema_version, 5);
         assert_eq!(theme.appearance, Appearance::Auto);
         assert_eq!(theme.art, ArtSettings::default());
         assert_eq!(theme.effects, EffectSettings::default());
@@ -547,12 +675,12 @@ mod tests {
     #[test]
     fn rejects_unsupported_schema_versions_and_invalid_enums() {
         let unsupported = ThemeDocument::from_json(
-            r#"{"schemaVersion":5,"id":"a","name":"A","image":"a.jpg","appearance":"auto","art":{}}"#,
+            r#"{"schemaVersion":6,"id":"a","name":"A","image":"a.jpg","appearance":"auto","art":{}}"#,
         );
         assert!(unsupported.is_err());
 
         let invalid_enum = ThemeDocument::from_json(
-            r#"{"schemaVersion":4,"id":"a","name":"A","image":"a.jpg","appearance":"sepia","art":{}}"#,
+            r#"{"schemaVersion":5,"id":"a","name":"A","image":"a.jpg","appearance":"sepia","art":{}}"#,
         );
         assert!(invalid_enum.is_err());
     }

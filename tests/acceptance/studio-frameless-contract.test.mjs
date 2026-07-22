@@ -70,7 +70,7 @@ test("keeps the calibrated preview structural and shadow-free", async () => {
   assert.match(preview, /data-testid=["']preview-title-bar["']/);
   assert.match(preview, /data-testid=["']preview-codex-grid["']/);
   assert.doesNotMatch(preview, /preview-shadow/);
-  assert.doesNotMatch(preview, /preview-region-|preview-right-panel|codex-geometry/);
+  assert.doesNotMatch(preview, /preview-region-|codex-geometry/);
 
   const canvasRule = css.match(/\.preview-canvas\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
   assert.ok(canvasRule, "preview-canvas rule is required");
@@ -94,7 +94,7 @@ test("bundles full-CJK font families and lays startup settings out inline", asyn
   assert.doesNotMatch(css.match(/\.startup-settings\s*\{[\s\S]*?\n\}/)?.[0] ?? "", /position:\s*(absolute|fixed)/);
 });
 
-test("ships the five-page inspector with unified and independent region controls", async () => {
+test("ships the five-page inspector with six mapped interface controls", async () => {
   const [tabs, inspector, preview, themeLibrary, css] = await Promise.all([
     read("src/components/inspector/InspectorTabs.tsx"),
     read("src/components/inspector/ThemeInspector.tsx"),
@@ -104,22 +104,47 @@ test("ships the five-page inspector with unified and independent region controls
   ]);
   for (const label of ["图片", "构图", "色调", "光效", "界面"]) assert.match(inspector, new RegExp(label));
   for (const mode of ["original", "grayscale", "duotone", "wash"]) assert.match(inspector, new RegExp(mode));
-  assert.match(inspector, /interfaceOpacity/);
   assert.match(inspector, /界面背景透明度/);
-  for (const field of ["leftSidebarOpacity", "topBarOpacity", "rightSidebarOpacity", "bottomBarOpacity"]) {
+  for (const field of [
+    "interfaceOpacity",
+    "leftSidebarOpacity",
+    "topBarOpacity",
+    "rightSidebarOpacity",
+    "bottomBarOpacity",
+    "inputOpacity",
+  ]) {
     assert.match(`${inspector}\n${preview}`, new RegExp(field));
+  }
+  for (const testId of [
+    "preview-codex-grid",
+    "preview-right-panel",
+    "preview-bottom-panel",
+    "preview-composer",
+  ]) {
+    assert.match(preview, new RegExp(`data-testid=["']${testId}["']`));
   }
   for (const alias of ["sidebarOpacity", "composerOpacity"]) assert.doesNotMatch(inspector, new RegExp(alias));
   assert.match(themeLibrary, /aria-label={`删除 \$\{theme\.name\}`}/);
   assert.doesNotMatch(`${tabs}\n${inspector}\n${preview}`, /内容避让区|focus-crosshair|safe-area/);
-  assert.match(inspector, /同步调整四个区域/);
-  assert.doesNotMatch(`${inspector}\n${preview}`, /preview-region-|preview-right-panel|preview-bottom-fade|preview-bottom-actions/);
+  assert.match(inspector, /同步调整全部界面区域/);
+  assert.doesNotMatch(`${inspector}\n${preview}`, /preview-region-|preview-bottom-fade|preview-bottom-actions/);
   assert.match(css, /\.preview-codex-grid\s*\{/);
-  for (const structuralClass of ["preview-title-bar", "preview-left-navigation", "preview-route-header", "preview-main-content", "preview-composer"]) {
-    const rule = css.match(new RegExp(`\\.${structuralClass}\\s*\\{[\\s\\S]*?\\n\\}`))?.[0] ?? "";
-    assert.ok(rule, `${structuralClass} rule is required`);
-    assert.doesNotMatch(rule, /position:\s*absolute/);
+  for (const structuralClass of [
+    "preview-title-bar",
+    "preview-left-navigation",
+    "preview-route-header",
+    "preview-main-content",
+    "preview-right-panel",
+    "preview-composer",
+    "preview-bottom-panel",
+  ]) {
+    const rules = css.match(new RegExp(`\\.${structuralClass}\\s*\\{[\\s\\S]*?\\n\\}`, "g")) ?? [];
+    assert.ok(rules.length > 0, `${structuralClass} rule is required`);
+    for (const rule of rules) assert.doesNotMatch(rule, /position:\s*absolute/);
   }
+  const composerRules = (css.match(/\.preview-composer\s*\{[\s\S]*?\n\}/g) ?? []).join("\n");
+  assert.match(composerRules, /--preview-input-opacity/);
+  assert.doesNotMatch(composerRules, /--preview-bottom-opacity/);
   const stageRule = css.match(/\.preview-stage\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
   assert.match(stageRule, /aspect-ratio:\s*1296\s*\/\s*830/);
   assert.doesNotMatch(stageRule, /background:\s*(#000|black|rgb\(0)/i);
@@ -140,8 +165,12 @@ test("removes the region contract and keeps Studio acceptance on the unified pre
   const acceptance = await read("tests/acceptance/cdp-studio-acceptance.mjs");
   assert.match(acceptance, /preview-codex-grid/);
   assert.match(acceptance, /preview-main-content/);
+  assert.match(acceptance, /preview-right-panel/);
+  assert.match(acceptance, /preview-bottom-panel/);
   assert.match(acceptance, /preview-composer/);
-  assert.match(acceptance, /main\.bottom\s*<=\s*composer\.top/);
+  assert.match(acceptance, /mainAboveComposer:\s*main\.bottom\s*<=\s*composer\.top/);
+  assert.match(acceptance, /composerAboveBottom:\s*composer\.bottom\s*<=\s*bottom\.top/);
+  assert.match(acceptance, /rightBesideMain:\s*right\.left\s*>=\s*main\.right/);
   assert.doesNotMatch(acceptance, /preview-region-|regionContract|Four-region|four-region/);
 });
 

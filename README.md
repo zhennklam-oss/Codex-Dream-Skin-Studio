@@ -10,7 +10,14 @@
 
 Codex Dream Skin Studio 是一个面向 Windows 的 Codex 可视化主题控制器。它把经过验证的 Dream Skin 注入引擎封装进 Tauri 2 + React 桌面应用，让用户通过主题库、图片画布和实时预览管理 Codex 外观，而不需要手动运行 PowerShell 或 Node.js 脚本。
 
-当前版本为 `0.1.1`，内置 `Engine 1.6.0`，使用 `Theme schema 4`。
+当前版本为 `0.2.0`，内置 `Engine 1.7.0`，使用 `Theme schema 5`。
+
+### 0.2.0 更新内容
+
+- 将 Studio 的界面透明度控制与 Codex 实际区域一一对应：左侧栏、顶栏、右侧审阅面板、底部终端面板和输入区现在分别控制各自的真实表面。
+- 新增独立的输入区透明度；默认值保留 Codex 原生输入框的宽度、圆角、边框、阴影和布局，不再把输入框误当作 Bottom Panel。
+- 主题升级到 schema 5，并自动迁移旧主题的输入区与面板透明度设置。
+- Engine 1.7.0 使用语义表面状态验证注入结果，修复皮肤短暂生效后因旧 verifier 错判而回滚的问题。
 
 ### 0.1.1 更新内容
 
@@ -38,7 +45,7 @@ Codex Dream Skin Studio 是一个面向 Windows 的 Codex 可视化主题控制�
 
 ### 安装
 
-从 GitHub Releases 下载并运行 `Codex Dream Skin Studio_0.1.1_x64-setup.exe`。标准安装会创建开始菜单和桌面快捷方式，并注册卸载入口。
+从 GitHub Releases 下载并运行 `Codex Dream Skin Studio_0.2.0_x64-setup.exe`。标准安装会创建开始菜单和桌面快捷方式，并注册卸载入口。
 
 首次运行时，应用会验证并同步随安装包提供的引擎。用户不需要保留原始 Codex-Dream-Skin 项目目录，也不需要另外安装 Node.js。
 
@@ -88,7 +95,7 @@ npm run tauri build
 Cargo/Tauri 输出保存在仓库内受忽略的构建目录中。生成的 Windows 安装包路径为：
 
 ```text
-src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.1.1_x64-setup.exe
+src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.2.0_x64-setup.exe
 ```
 
 ### 测试
@@ -135,7 +142,14 @@ Codex 渲染器准备就绪可能需要一些时间。先等待状态自动校�
 
 Codex Dream Skin Studio is a visual theme controller for Codex on Windows. It packages the verified Dream Skin injection engine in a Tauri 2 + React desktop app, so themes, image composition, and live preview can be managed without manually running PowerShell or Node.js scripts.
 
-The current release is `0.1.1`, with `Engine 1.6.0` and `Theme schema 4`.
+The current release is `0.2.0`, with `Engine 1.7.0` and `Theme schema 5`.
+
+### What's new in 0.2.0
+
+- Mapped Studio's interface opacity controls one-to-one with real Codex surfaces: the sidebar, top bar, review panel, bottom terminal panel, and composer are now controlled independently.
+- Added dedicated composer opacity while preserving Codex's native input width, radius, border, shadow, and layout by default; the composer is no longer mistaken for the Bottom Panel.
+- Upgraded themes to schema 5 with automatic migration of existing composer and panel opacity settings.
+- Engine 1.7.0 verifies injection through semantic surface state, preventing successful skins from being rolled back by the legacy verifier.
 
 ### What's new in 0.1.1
 
@@ -163,7 +177,7 @@ The current release is `0.1.1`, with `Engine 1.6.0` and `Theme schema 4`.
 
 ### Installation
 
-Download `Codex Dream Skin Studio_0.1.1_x64-setup.exe` from GitHub Releases and run it. The standard installer creates Start menu and desktop shortcuts and registers an uninstall entry.
+Download `Codex Dream Skin Studio_0.2.0_x64-setup.exe` from GitHub Releases and run it. The standard installer creates Start menu and desktop shortcuts and registers an uninstall entry.
 
 On first launch, the app verifies and synchronizes the bundled engine. Users do not need to keep the original Codex-Dream-Skin project directory or install Node.js separately.
 
@@ -211,7 +225,7 @@ npm run tauri build
 Cargo/Tauri output stays in the ignored repository-local build directory. The generated Windows installer is located at:
 
 ```text
-src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.1.1_x64-setup.exe
+src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.2.0_x64-setup.exe
 ```
 
 ### Tests

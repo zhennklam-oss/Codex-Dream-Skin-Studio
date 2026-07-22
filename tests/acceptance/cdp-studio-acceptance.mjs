@@ -145,16 +145,38 @@ await waitFor(`document.querySelector('[data-testid="preview-codex-grid"]')`);
 const interfaceContract = await evaluate(`(() => {
   const main = document.querySelector('[data-testid="preview-main-content"]').getBoundingClientRect();
   const composer = document.querySelector('[data-testid="preview-composer"]').getBoundingClientRect();
+  const bottom = document.querySelector('[data-testid="preview-bottom-panel"]').getBoundingClientRect();
+  const right = document.querySelector('[data-testid="preview-right-panel"]').getBoundingClientRect();
   return {
     ranges: document.querySelectorAll('.inspector-page input[type="range"]').length,
+    labels: [...document.querySelectorAll('.inspector-page input[type="range"]')].map(input => input.getAttribute('aria-label')),
+    syncCopy: document.querySelector('.region-sync-toggle span')?.textContent.trim(),
     value: document.querySelector('.inspector-page input[type="range"]')?.value,
     main: { top: main.top, bottom: main.bottom },
     composer: { top: composer.top, bottom: composer.bottom },
-    nonOverlapping: main.bottom <= composer.top
+    bottom: { top: bottom.top, bottom: bottom.bottom },
+    right: { left: right.left, right: right.right },
+    mainAboveComposer: main.bottom <= composer.top,
+    composerAboveBottom: composer.bottom <= bottom.top,
+    rightBesideMain: right.left >= main.right
   };
 })()`);
-if (interfaceContract.ranges !== 1 || !interfaceContract.value || !interfaceContract.nonOverlapping) {
-  throw new Error(`Unified interface contract failed: ${JSON.stringify(interfaceContract)}`);
+const expectedInterfaceLabels = [
+  "界面背景透明度",
+  "左侧栏透明度",
+  "顶栏透明度",
+  "右侧栏（审阅面板）透明度",
+  "底栏（终端面板）透明度",
+  "输入区透明度",
+];
+if (interfaceContract.ranges !== 6
+  || interfaceContract.labels.join(",") !== expectedInterfaceLabels.join(",")
+  || interfaceContract.syncCopy !== "同步调整全部界面区域"
+  || !interfaceContract.value
+  || !interfaceContract.mainAboveComposer
+  || !interfaceContract.composerAboveBottom
+  || !interfaceContract.rightBesideMain) {
+  throw new Error(`Mapped interface contract failed: ${JSON.stringify(interfaceContract)}`);
 }
 await capture("studio-interface-opacity.png");
 

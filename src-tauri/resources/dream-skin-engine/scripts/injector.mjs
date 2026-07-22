@@ -7,7 +7,7 @@ import { readImageMetadata } from "./image-metadata.mjs";
 const scriptPath = fileURLToPath(import.meta.url);
 const here = path.dirname(scriptPath);
 const root = path.resolve(here, "..");
-const SKIN_VERSION = "1.6.0";
+const SKIN_VERSION = "1.7.0";
 const MAX_ART_BYTES = 16 * 1024 * 1024;
 const STRONG_THEME_AUDIT_MS = 30000;
 const CDP_CLOSE_TIMEOUT_MS = 250;
@@ -477,7 +477,7 @@ async function loadTheme(themeDir) {
   const palette = raw.palette && typeof raw.palette === "object" && !Array.isArray(raw.palette)
     ? raw.palette : {};
   const schemaVersion = raw.schemaVersion ?? 1;
-  if (![1, 2, 3, 4].includes(schemaVersion)) {
+  if (![1, 2, 3, 4, 5].includes(schemaVersion)) {
     throw new Error(`unsupported schemaVersion: ${schemaVersion}`);
   }
   const readInterfaceOpacity = (value, name) => {
@@ -511,8 +511,18 @@ async function loadTheme(themeDir) {
     }
     return interfaceOpacity;
   };
+  const inputOpacity = effects.inputOpacity !== undefined
+    ? readInterfaceOpacity(effects.inputOpacity, "effects.inputOpacity")
+    : effects.composerOpacity !== undefined
+      ? readInterfaceOpacity(effects.composerOpacity, "effects.composerOpacity")
+      : schemaVersion <= 4 && effects.bottomBarOpacity !== undefined
+        ? readInterfaceOpacity(effects.bottomBarOpacity, "effects.bottomBarOpacity")
+        : 0.9;
+  const bottomBarOpacity = schemaVersion === 5
+    ? regionOpacity("bottomBarOpacity")
+    : interfaceOpacity;
   const theme = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: normalizedText(raw.id, "id", "custom", 80),
     name: normalizedText(raw.name, "name", "Codex Dream Skin", 120),
     image,
@@ -535,7 +545,8 @@ async function loadTheme(themeDir) {
       leftSidebarOpacity: regionOpacity("leftSidebarOpacity", "sidebarOpacity"),
       topBarOpacity: regionOpacity("topBarOpacity"),
       rightSidebarOpacity: regionOpacity("rightSidebarOpacity"),
-      bottomBarOpacity: regionOpacity("bottomBarOpacity", "composerOpacity"),
+      bottomBarOpacity,
+      inputOpacity,
       toneMode: normalizedChoice(effects.toneMode, "effects.toneMode", THEME_CHOICES.toneMode, "original"),
       toneStrength: normalizedNumber(effects.toneStrength, "effects.toneStrength", 0, 1, 1),
       duotoneShadow: normalizedHexColor(effects.duotoneShadow, "effects.duotoneShadow", "#1C1B22"),
@@ -802,9 +813,18 @@ async function verifySession(session) {
       const r = node.getBoundingClientRect();
       return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
     };
+    const isVisible = (node) => {
+      if (!node) return false;
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
+        style.visibility !== 'hidden' && Number(style.opacity || 1) > 0;
+    };
     const home = document.querySelector('.dream-home');
     const suggestions = home?.querySelector('.group\\\\/home-suggestions') ?? null;
     const cards = suggestions ? [...suggestions.querySelectorAll('button')].map(box) : [];
+    const bottomPanel = document.querySelector('[data-app-shell-focus-area="bottom-panel"]');
+    const surfaces = window.__CODEX_DREAM_SKIN_STATE__?.surfaces ?? null;
     const result = {
       installed: document.documentElement.classList.contains('codex-dream-skin'),
       version: window.__CODEX_DREAM_SKIN_STATE__?.version ?? null,
@@ -819,11 +839,14 @@ async function verifySession(session) {
       composer: box(document.querySelector('.composer-surface-chrome')),
       sidebar: box(document.querySelector('aside.app-shell-left-panel')),
       mainSurface: box(document.querySelector('main.main-surface')),
-      surfaces: window.__CODEX_DREAM_SKIN_STATE__?.surfaces ?? null,
+      bottomPanel: box(bottomPanel),
+      bottomPanelVisible: isVisible(bottomPanel),
+      surfaces,
       semantic: {
-        main: Boolean(document.querySelector('main.main-surface.dream-surface-main')),
-        left: Boolean(document.querySelector('aside.app-shell-left-panel.dream-surface-left')),
-        bottom: Boolean(document.querySelector('.composer-surface-chrome.dream-surface-bottom')),
+        main: surfaces?.main?.available === true,
+        left: surfaces?.left?.available === true,
+        bottom: surfaces?.bottom?.available === true,
+        input: surfaces?.input?.available === true,
       },
       viewport: { width: innerWidth, height: innerHeight },
       documentOverflow: {
@@ -834,7 +857,8 @@ async function verifySession(session) {
     result.pass = result.installed && result.version === result.expectedVersion &&
       result.stylePresent && result.chromePresent &&
       result.chromePointerEvents === 'none' && Boolean(result.mainSurface) && result.semantic.main &&
-      (!result.sidebar || result.semantic.left) && (!result.composer || result.semantic.bottom) &&
+      (!result.sidebar || result.semantic.left) && (!result.composer || result.semantic.input) &&
+      (!result.bottomPanelVisible || result.semantic.bottom) &&
       (Boolean(result.composer) || Boolean(document.querySelector('[role="main"]'))) &&
       (!result.homePresent || (Boolean(result.hero) &&
         (!result.suggestionsPresent || (result.cards.length >= 2 && result.cards.length <= 4))));

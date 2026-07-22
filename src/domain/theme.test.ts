@@ -9,14 +9,14 @@ import {
 
 describe("normalizeTheme", () => {
   it.each([
-    [{ leftSidebarOpacity: 0.2, topBarOpacity: 0.4, rightSidebarOpacity: 0.6, bottomBarOpacity: 0.8 }, 0.5, [0.2, 0.4, 0.6, 0.8]],
-    [{ leftSidebarOpacity: 0.2, rightSidebarOpacity: 0.7 }, 0.45, [0.2, 0.45, 0.7, 0.45]],
-    [{ sidebarOpacity: 0.31, composerOpacity: 0.47 }, 0.39, [0.31, 0.39, 0.39, 0.47]],
-    [{ composerOpacity: 0.33339 }, 0.3334, [0.3334, 0.3334, 0.3334, 0.33339]],
-    [{}, 0.78, [0.78, 0.78, 0.78, 0.78]],
-  ])("migrates legacy opacity fields while preserving independent regions", (effects, expected, regions) => {
+    [{ leftSidebarOpacity: 0.2, topBarOpacity: 0.4, rightSidebarOpacity: 0.6, bottomBarOpacity: 0.8 }, 0.5, [0.2, 0.4, 0.6, 0.5], 0.8],
+    [{ leftSidebarOpacity: 0.2, rightSidebarOpacity: 0.7 }, 0.45, [0.2, 0.45, 0.7, 0.45], 0.9],
+    [{ sidebarOpacity: 0.31, composerOpacity: 0.47 }, 0.39, [0.31, 0.39, 0.39, 0.39], 0.47],
+    [{ composerOpacity: 0.33339 }, 0.3334, [0.3334, 0.3334, 0.3334, 0.3334], 0.33339],
+    [{}, 0.78, [0.78, 0.78, 0.78, 0.78], 0.9],
+  ])("migrates legacy opacity fields into schema five regions", (effects, expected, regions, inputOpacity) => {
     const theme = normalizeTheme({ schemaVersion: 2, id: "legacy", name: "Legacy", image: "art.jpg", effects });
-    expect(theme.schemaVersion).toBe(4);
+    expect(theme.schemaVersion).toBe(5);
     expect(theme.effects.interfaceOpacity).toBe(expected);
     expect([
       theme.effects.leftSidebarOpacity,
@@ -24,9 +24,71 @@ describe("normalizeTheme", () => {
       theme.effects.rightSidebarOpacity,
       theme.effects.bottomBarOpacity,
     ]).toEqual(regions);
+    expect(theme.effects.inputOpacity).toBe(inputOpacity);
     for (const removed of ["sidebarOpacity", "composerOpacity"]) {
       expect(theme.effects).not.toHaveProperty(removed);
     }
+  });
+
+  it("migrates schema 4 composer-backed bottom opacity into input opacity", () => {
+    const theme = normalizeTheme({
+      schemaVersion: 4,
+      id: "schema-four",
+      name: "Schema Four",
+      image: "art.jpg",
+      effects: {
+        interfaceOpacity: 0.61,
+        leftSidebarOpacity: 0.2,
+        topBarOpacity: 0.3,
+        rightSidebarOpacity: 0.4,
+        bottomBarOpacity: 0.27,
+      },
+    });
+
+    expect(theme.schemaVersion).toBe(5);
+    expect(theme.effects.inputOpacity).toBe(0.27);
+    expect(theme.effects.bottomBarOpacity).toBe(0.61);
+  });
+
+  it("preserves independent schema 5 bottom and input opacity", () => {
+    const theme = normalizeTheme({
+      schemaVersion: 5,
+      id: "schema-five",
+      name: "Schema Five",
+      image: "art.jpg",
+      effects: {
+        interfaceOpacity: 0.61,
+        bottomBarOpacity: 0.42,
+        inputOpacity: 0.83,
+      },
+    });
+
+    expect(theme.effects.bottomBarOpacity).toBe(0.42);
+    expect(theme.effects.inputOpacity).toBe(0.83);
+  });
+
+  it("uses composerOpacity as legacy input opacity", () => {
+    const theme = normalizeTheme({
+      schemaVersion: 2,
+      id: "legacy-composer",
+      name: "Legacy Composer",
+      image: "art.jpg",
+      effects: { sidebarOpacity: 0.31, composerOpacity: 0.47 },
+    });
+
+    expect(theme.effects.interfaceOpacity).toBe(0.39);
+    expect(theme.effects.inputOpacity).toBe(0.47);
+    expect(theme.effects.bottomBarOpacity).toBe(0.39);
+  });
+
+  it("rejects schema 5 input opacity outside the valid range", () => {
+    expect(() => normalizeTheme({
+      schemaVersion: 5,
+      id: "bad-input",
+      name: "Bad Input",
+      image: "art.jpg",
+      effects: { inputOpacity: 1.01 },
+    })).toThrow(/inputOpacity/);
   });
 
   it("rejects out-of-range schema four interface and region opacity", () => {
@@ -86,7 +148,7 @@ describe("normalizeTheme", () => {
       quote: "KEEP ME",
     });
 
-    expect(theme.schemaVersion).toBe(4);
+    expect(theme.schemaVersion).toBe(5);
     expect(theme.art).toEqual({ ...DEFAULT_ART, focusX: 0.4, focusY: 0.6, safeArea: "left", taskMode: "ambient" });
     expect(theme.effects).toEqual(DEFAULT_EFFECTS);
     expect(theme.extra.quote).toBe("KEEP ME");
@@ -101,7 +163,7 @@ describe("normalizeTheme", () => {
       art: { focusX: 0.5, focusY: 0.46, safeArea: "auto", taskMode: "auto" },
     });
 
-    expect(theme.schemaVersion).toBe(4);
+    expect(theme.schemaVersion).toBe(5);
     expect(theme.art.scale).toBe(1);
   });
 
@@ -119,7 +181,7 @@ describe("normalizeTheme", () => {
     expect(theme.art.safeArea).toBe("none");
   });
 
-  it("keeps schema four values and merges existing extra metadata", () => {
+  it("migrates schema four values and merges existing extra metadata", () => {
     const theme = normalizeTheme({
       schemaVersion: 4,
       id: "complete",
@@ -148,7 +210,7 @@ describe("normalizeTheme", () => {
       effects: DEFAULT_EFFECTS,
     };
 
-    expect(() => normalizeTheme({ ...base, schemaVersion: 5 })).toThrow(/schemaVersion/);
+    expect(() => normalizeTheme({ ...base, schemaVersion: 6 })).toThrow(/schemaVersion/);
     expect(() => normalizeTheme({ ...base, appearance: "sepia" })).toThrow(/appearance/);
     expect(() => normalizeTheme({ ...base, art: { ...DEFAULT_ART, safeArea: "top" } })).toThrow(/safeArea/);
     expect(() => normalizeTheme({ ...base, art: { ...DEFAULT_ART, taskMode: "full" } })).toThrow(/taskMode/);
@@ -160,7 +222,7 @@ describe("normalizeTheme", () => {
 
 describe("validateTheme", () => {
   const validTheme = (): ThemeDocument => normalizeTheme({
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: "id",
     name: "Name",
     image: "art.jpg",
@@ -184,6 +246,7 @@ describe("validateTheme", () => {
       topBarOpacity: 1,
       rightSidebarOpacity: 0.5,
       bottomBarOpacity: 1,
+      inputOpacity: 0,
       toneMode: "wash",
       toneStrength: 0,
       duotoneShadow: "#000000",

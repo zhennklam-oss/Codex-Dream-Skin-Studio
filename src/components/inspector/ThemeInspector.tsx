@@ -204,46 +204,55 @@ export function ThemeInspector({
           value={draft.effects.interfaceOpacity}
           resetValue={DEFAULT_EFFECTS.interfaceOpacity}
           disabled={busy}
-          onChange={(interfaceOpacity) => onUpdateDraft({ effects: { interfaceOpacity } })}
+          onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("interfaceOpacity", value, synchronizeRegions))}
         />
         <label className="region-sync-toggle">
           <input
             type="checkbox"
-            aria-label="同步调整四个区域"
+            aria-label="同步调整全部界面区域"
             checked={synchronizeRegions}
             disabled={busy}
             onChange={(event) => setSynchronizeRegions(event.target.checked)}
           />
-          <span>同步调整四个区域</span>
-          <small>{synchronizeRegions ? "任一滑块将同时更新四区" : "每个区域保持独立"}</small>
+          <span>同步调整全部界面区域</span>
+          <small>{synchronizeRegions ? "任一滑块将同时更新全部区域" : "每个区域保持独立"}</small>
         </label>
-        <PercentRange label="左侧栏透明度" value={draft.effects.leftSidebarOpacity} resetValue={DEFAULT_EFFECTS.leftSidebarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildRegionOpacityPatch("leftSidebarOpacity", value, synchronizeRegions))} />
-        <PercentRange label="顶部栏透明度" value={draft.effects.topBarOpacity} resetValue={DEFAULT_EFFECTS.topBarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildRegionOpacityPatch("topBarOpacity", value, synchronizeRegions))} />
-        <PercentRange label="右侧栏透明度" value={draft.effects.rightSidebarOpacity} resetValue={DEFAULT_EFFECTS.rightSidebarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildRegionOpacityPatch("rightSidebarOpacity", value, synchronizeRegions))} />
-        <PercentRange label="底部栏透明度" value={draft.effects.bottomBarOpacity} resetValue={DEFAULT_EFFECTS.bottomBarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildRegionOpacityPatch("bottomBarOpacity", value, synchronizeRegions))} />
+        <PercentRange label="左侧栏透明度" value={draft.effects.leftSidebarOpacity} resetValue={DEFAULT_EFFECTS.leftSidebarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("leftSidebarOpacity", value, synchronizeRegions))} />
+        <PercentRange label="顶栏透明度" value={draft.effects.topBarOpacity} resetValue={DEFAULT_EFFECTS.topBarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("topBarOpacity", value, synchronizeRegions))} />
+        <PercentRange label="右侧栏（审阅面板）透明度" value={draft.effects.rightSidebarOpacity} resetValue={DEFAULT_EFFECTS.rightSidebarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("rightSidebarOpacity", value, synchronizeRegions))} />
+        <PercentRange label="底栏（终端面板）透明度" value={draft.effects.bottomBarOpacity} resetValue={DEFAULT_EFFECTS.bottomBarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("bottomBarOpacity", value, synchronizeRegions))} />
+        <PercentRange label="输入区透明度" value={draft.effects.inputOpacity} resetValue={DEFAULT_EFFECTS.inputOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("inputOpacity", value, synchronizeRegions))} />
       </InspectorSection>
     );
   }
 }
 
-type RegionOpacityField = "leftSidebarOpacity" | "topBarOpacity" | "rightSidebarOpacity" | "bottomBarOpacity";
+type InterfaceOpacityField =
+  | "interfaceOpacity"
+  | "leftSidebarOpacity"
+  | "topBarOpacity"
+  | "rightSidebarOpacity"
+  | "bottomBarOpacity"
+  | "inputOpacity";
 
-export function buildRegionOpacityPatch(
-  changedRegion: RegionOpacityField,
+export function buildInterfaceOpacityPatch(
+  changedField: InterfaceOpacityField,
   value: number,
   synchronized: boolean,
 ): ThemePatch {
-  if (synchronized) {
-    return {
-      effects: {
-        leftSidebarOpacity: value,
-        topBarOpacity: value,
-        rightSidebarOpacity: value,
-        bottomBarOpacity: value,
-      },
-    };
+  if (!synchronized) {
+    return { effects: { [changedField]: value } as Partial<EffectSettings> };
   }
-  return { effects: { [changedRegion]: value } as Partial<EffectSettings> };
+  return {
+    effects: {
+      interfaceOpacity: value,
+      leftSidebarOpacity: value,
+      topBarOpacity: value,
+      rightSidebarOpacity: value,
+      bottomBarOpacity: value,
+      inputOpacity: value,
+    },
+  };
 }
 
 function InspectorSection({ title, index, children }: { title: string; index: string; children: React.ReactNode }) {

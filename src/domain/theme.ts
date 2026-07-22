@@ -23,6 +23,7 @@ export interface EffectSettings {
   topBarOpacity: number;
   rightSidebarOpacity: number;
   bottomBarOpacity: number;
+  inputOpacity: number;
   toneMode: ToneMode;
   toneStrength: number;
   duotoneShadow: string;
@@ -31,7 +32,7 @@ export interface EffectSettings {
 }
 
 export interface ThemeDocument {
-  schemaVersion: 4;
+  schemaVersion: 5;
   id: string;
   name: string;
   image: string;
@@ -63,6 +64,7 @@ export const DEFAULT_EFFECTS: EffectSettings = {
   topBarOpacity: 0.78,
   rightSidebarOpacity: 0.78,
   bottomBarOpacity: 0.78,
+  inputOpacity: 0.9,
   toneMode: "original",
   toneStrength: 1,
   duotoneShadow: "#1C1B22",
@@ -90,9 +92,9 @@ const KNOWN_FIELDS = new Set([
 
 export function normalizeTheme(input: unknown): ThemeDocument {
   const source = requireRecord(input, "theme must be an object");
-  const schemaVersion = valueOrDefault(source.schemaVersion, 1);
-  if (![1, 2, 3, 4].includes(schemaVersion as number)) {
-    throw new Error("schemaVersion must be 1, 2, 3, or 4");
+  const sourceSchemaVersion = valueOrDefault(source.schemaVersion, 1);
+  if (![1, 2, 3, 4, 5].includes(sourceSchemaVersion as number)) {
+    throw new Error("schemaVersion must be 1, 2, 3, 4, or 5");
   }
 
   const artSource = optionalRecord(source.art, "art must be an object");
@@ -104,8 +106,12 @@ export function normalizeTheme(input: unknown): ThemeDocument {
   }
 
   const interfaceOpacity = migratedInterfaceOpacity(effectsSource);
+  const inputOpacity = migratedInputOpacity(effectsSource, sourceSchemaVersion as number);
+  const bottomBarOpacity = sourceSchemaVersion === 5
+    ? migratedRegionOpacity(effectsSource, "bottomBarOpacity", null, interfaceOpacity)
+    : interfaceOpacity;
   const theme: ThemeDocument = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: requireString(source.id, "id"),
     name: requireString(source.name, "name"),
     image: requireString(source.image, "image"),
@@ -128,7 +134,8 @@ export function normalizeTheme(input: unknown): ThemeDocument {
       leftSidebarOpacity: migratedRegionOpacity(effectsSource, "leftSidebarOpacity", "sidebarOpacity", interfaceOpacity),
       topBarOpacity: migratedRegionOpacity(effectsSource, "topBarOpacity", null, interfaceOpacity),
       rightSidebarOpacity: migratedRegionOpacity(effectsSource, "rightSidebarOpacity", null, interfaceOpacity),
-      bottomBarOpacity: migratedRegionOpacity(effectsSource, "bottomBarOpacity", "composerOpacity", interfaceOpacity),
+      bottomBarOpacity,
+      inputOpacity,
       toneMode: readEnum(valueOrDefault(effectsSource.toneMode, DEFAULT_EFFECTS.toneMode), TONE_MODES, "effects.toneMode"),
       toneStrength: readNumber(valueOrDefault(effectsSource.toneStrength, DEFAULT_EFFECTS.toneStrength), "effects.toneStrength"),
       duotoneShadow: readHexColor(valueOrDefault(effectsSource.duotoneShadow, DEFAULT_EFFECTS.duotoneShadow), "effects.duotoneShadow"),
@@ -145,7 +152,7 @@ export function normalizeTheme(input: unknown): ThemeDocument {
 
 export function validateTheme(theme: ThemeDocument): string[] {
   const errors: string[] = [];
-  if (theme.schemaVersion !== 4) errors.push("schemaVersion must be 4");
+  if (theme.schemaVersion !== 5) errors.push("schemaVersion must be 5");
   validateRequiredString(errors, "id", theme.id);
   validateRequiredString(errors, "name", theme.name);
   validateRequiredString(errors, "image", theme.image);
@@ -166,6 +173,7 @@ export function validateTheme(theme: ThemeDocument): string[] {
   validateRange(errors, "effects.topBarOpacity", theme.effects.topBarOpacity, 0, 1);
   validateRange(errors, "effects.rightSidebarOpacity", theme.effects.rightSidebarOpacity, 0, 1);
   validateRange(errors, "effects.bottomBarOpacity", theme.effects.bottomBarOpacity, 0, 1);
+  validateRange(errors, "effects.inputOpacity", theme.effects.inputOpacity, 0, 1);
   if (!TONE_MODES.includes(theme.effects.toneMode)) errors.push("effects.toneMode is invalid");
   validateRange(errors, "effects.toneStrength", theme.effects.toneStrength, 0, 1);
   validateHexColor(errors, "effects.duotoneShadow", theme.effects.duotoneShadow);
@@ -202,6 +210,19 @@ function migratedRegionOpacity(
     return readNumber(effects[legacyField], `effects.${legacyField}`);
   }
   return fallback;
+}
+
+function migratedInputOpacity(effects: Record<string, unknown>, schemaVersion: number): number {
+  if (effects.inputOpacity !== undefined) {
+    return readNumber(effects.inputOpacity, "effects.inputOpacity");
+  }
+  if (effects.composerOpacity !== undefined) {
+    return readNumber(effects.composerOpacity, "effects.composerOpacity");
+  }
+  if (schemaVersion <= 4 && effects.bottomBarOpacity !== undefined) {
+    return readNumber(effects.bottomBarOpacity, "effects.bottomBarOpacity");
+  }
+  return DEFAULT_EFFECTS.inputOpacity;
 }
 
 function requireRecord(value: unknown, message: string): Record<string, unknown> {

@@ -71,12 +71,14 @@ export function PreviewCanvas({ theme, imageUrl, imageMetadata, onFocusChange, o
     ...toneStyle.variables,
   };
   const gridStyle = {
-    gridTemplateAreas: '"title title" "nav route" "nav main" "nav composer"',
+    gridTemplateAreas:
+      '"title title title" "nav route right" "nav main right" "nav composer right" "nav bottom right"',
     "--preview-interface-opacity": String(style.interfaceOpacity),
     "--preview-left-opacity": String(style.leftSidebarOpacity),
     "--preview-top-opacity": String(style.topBarOpacity),
     "--preview-right-opacity": String(style.rightSidebarOpacity),
     "--preview-bottom-opacity": String(style.bottomBarOpacity),
+    "--preview-input-opacity": String(style.inputOpacity),
   } as CSSProperties;
 
   useLayoutEffect(() => {
@@ -268,6 +270,25 @@ export function PreviewCanvas({ theme, imageUrl, imageMetadata, onFocusChange, o
             <main data-testid="preview-main-content" className="preview-main-content" aria-live="polite">
               {mode === "home" ? <HomeSimulation /> : <TaskSimulation taskMode={theme.art.taskMode} />}
             </main>
+
+            <aside
+              data-testid="preview-right-panel"
+              className="preview-right-panel"
+              aria-label="模拟 Codex 审阅面板"
+            >
+              <header><span>审阅</span><small>TOGGLE REVIEW PANEL</small></header>
+              <div><span>theme.ts</span><span>+18 −4</span></div>
+              <div><span>renderer-inject.js</span><span>+32 −2</span></div>
+            </aside>
+
+            <section
+              data-testid="preview-bottom-panel"
+              className="preview-bottom-panel"
+              aria-label="模拟 Codex 终端面板"
+            >
+              <header><span>TERMINAL</span><small>TOGGLE BOTTOM PANEL</small></header>
+              <code>PS C:\Projects\Codex&gt;</code>
+            </section>
 
             <section data-testid="preview-composer" className="preview-composer" aria-label="模拟 Codex 输入框">
               <span>向 Codex 发送消息</span>

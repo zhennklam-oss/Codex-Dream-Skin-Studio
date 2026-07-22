@@ -466,7 +466,7 @@ test("structured unskinned renderer stays pending but a mixed target failure doe
       result: {
         installed: false,
         version: null,
-        expectedVersion: "1.6.0",
+        expectedVersion: "1.7.0",
         pass: false,
       },
     }],
@@ -494,13 +494,13 @@ test("structured unskinned renderer stays pending but a mixed target failure doe
             { result: {
               installed: false,
               version: null,
-              expectedVersion: "1.6.0",
+              expectedVersion: "1.7.0",
               pass: false,
             } },
             { result: {
               installed: true,
-              version: "1.6.0",
-              expectedVersion: "1.6.0",
+              version: "1.7.0",
+              expectedVersion: "1.7.0",
               pass: true,
             } },
           ],
@@ -508,7 +508,7 @@ test("structured unskinned renderer stays pending but a mixed target failure doe
         "{bad-json",
         JSON.stringify({ mode: "inspect", targets: [{ result: {
           installed: false,
-          expectedVersion: "1.6.0",
+          expectedVersion: "1.7.0",
         } }] }),
         JSON.stringify({
           mode: "verify",
@@ -516,13 +516,13 @@ test("structured unskinned renderer stays pending but a mixed target failure doe
             { result: {
               installed: false,
               version: null,
-              expectedVersion: "1.6.0",
+              expectedVersion: "1.7.0",
               pass: false,
             } },
             { result: {
               installed: true,
               version: "1.5.1",
-              expectedVersion: "1.6.0",
+              expectedVersion: "1.7.0",
               pass: false,
             } },
           ],

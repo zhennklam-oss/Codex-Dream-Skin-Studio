@@ -49,9 +49,9 @@ $removedOpacityFields = @(
     'sidebarOpacity',
     'composerOpacity'
 )
-$requiredRegionFields = @('leftSidebarOpacity', 'topBarOpacity', 'rightSidebarOpacity', 'bottomBarOpacity')
+$requiredRegionFields = @('leftSidebarOpacity', 'topBarOpacity', 'rightSidebarOpacity', 'bottomBarOpacity', 'inputOpacity')
 
-if ($theme.schemaVersion -ne 4) { throw 'Bundled default theme is not schema 4' }
+if ($theme.schemaVersion -ne 5) { throw 'Bundled default theme is not schema 5' }
 if ($effectNames -notcontains 'interfaceOpacity') { throw 'Bundled default theme is missing interfaceOpacity' }
 foreach ($field in $requiredRegionFields) {
     if ($effectNames -notcontains $field) { throw "Bundled default theme is missing region field: $field" }
@@ -63,8 +63,8 @@ foreach ($field in $removedOpacityFields) {
 $renderer = [System.Text.Encoding]::UTF8.GetString(
     [System.IO.File]::ReadAllBytes((Join-Path $bundleRoot 'assets\renderer-inject.js'))
 )
-if ($renderer -notmatch 'version\s*:\s*[''"]1\.6\.0[''"]') {
-    throw 'Bundled renderer is not engine version 1.6.0'
+if ($renderer -notmatch 'version\s*:\s*[''"]1\.7\.0[''"]') {
+    throw 'Bundled renderer is not engine version 1.7.0'
 }
 
 $forbiddenNames = @('codex-region-contract.json', 'region-contract.js', 'region-contract.test.mjs')
@@ -77,7 +77,7 @@ foreach ($name in $forbiddenNames) {
 [ordered]@{
     installer = $installer.FullName
     installerSha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash
-    engineVersion = '1.6.0'
+    engineVersion = '1.7.0'
     themeSchema = $theme.schemaVersion
     interfaceOpacity = $theme.effects.interfaceOpacity
     regionOpacity = [ordered]@{
@@ -85,6 +85,7 @@ foreach ($name in $forbiddenNames) {
         top = $theme.effects.topBarOpacity
         right = $theme.effects.rightSidebarOpacity
         bottom = $theme.effects.bottomBarOpacity
+        input = $theme.effects.inputOpacity
     }
     sourceFileCount = $sourceFiles.Count
     bundleFileCount = $bundleFiles.Count

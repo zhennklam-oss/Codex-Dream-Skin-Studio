@@ -11,7 +11,7 @@ import { ThemeInspector } from "./ThemeInspector";
 afterEach(cleanup);
 
 const draft: ThemeDocument = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   id: "yingying",
   name: "萦萦",
   image: "art.jpg",
@@ -203,9 +203,10 @@ describe("ThemeInspector", () => {
     expect(onUpdateDraft).toHaveBeenCalledWith({ effects: { interfaceOpacity: DEFAULT_EFFECTS.interfaceOpacity } });
     for (const [label, field, value] of [
       ["左侧栏透明度", "leftSidebarOpacity", DEFAULT_EFFECTS.leftSidebarOpacity],
-      ["顶部栏透明度", "topBarOpacity", DEFAULT_EFFECTS.topBarOpacity],
-      ["右侧栏透明度", "rightSidebarOpacity", DEFAULT_EFFECTS.rightSidebarOpacity],
-      ["底部栏透明度", "bottomBarOpacity", DEFAULT_EFFECTS.bottomBarOpacity],
+      ["顶栏透明度", "topBarOpacity", DEFAULT_EFFECTS.topBarOpacity],
+      ["右侧栏（审阅面板）透明度", "rightSidebarOpacity", DEFAULT_EFFECTS.rightSidebarOpacity],
+      ["底栏（终端面板）透明度", "bottomBarOpacity", DEFAULT_EFFECTS.bottomBarOpacity],
+      ["输入区透明度", "inputOpacity", DEFAULT_EFFECTS.inputOpacity],
     ] as const) {
       await user.click(screen.getByRole("button", { name: `重置${label}` }));
       expect(onUpdateDraft).toHaveBeenCalledWith({ effects: { [field]: value } });
@@ -254,37 +255,42 @@ describe("ThemeInspector", () => {
     expect(onUpdateDraft).toHaveBeenCalledWith({ effects: { washColor: "#71988f" } });
   });
 
-  it("shows independent region opacity controls and can synchronize all four", async () => {
+  it("shows six explicit interface opacity controls and can synchronize every interface region", async () => {
     const user = userEvent.setup();
     const onUpdateDraft = vi.fn();
     renderInspector({ onUpdateDraft });
 
     await user.click(screen.getByRole("tab", { name: "界面" }));
-    const sliders = screen.getAllByRole("slider");
-    expect(sliders).toHaveLength(5);
-    expect(sliders.map((slider) => slider.getAttribute("aria-label"))).toEqual([
-      "界面背景透明度",
-      "左侧栏透明度",
-      "顶部栏透明度",
-      "右侧栏透明度",
-      "底部栏透明度",
-    ]);
-    expect(screen.getByRole("checkbox", { name: "同步调整四个区域" })).not.toBeChecked();
+    const interfaceControls = [
+      ["界面背景透明度", "interfaceOpacity"],
+      ["左侧栏透明度", "leftSidebarOpacity"],
+      ["顶栏透明度", "topBarOpacity"],
+      ["右侧栏（审阅面板）透明度", "rightSidebarOpacity"],
+      ["底栏（终端面板）透明度", "bottomBarOpacity"],
+      ["输入区透明度", "inputOpacity"],
+    ] as const;
+    for (const [label] of interfaceControls) {
+      expect(screen.getByRole("slider", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getAllByRole("slider")).toHaveLength(interfaceControls.length);
+    expect(screen.getByRole("checkbox", { name: "同步调整全部界面区域" })).not.toBeChecked();
 
     fireEvent.change(screen.getByRole("slider", { name: "界面背景透明度" }), { target: { value: "41" } });
     expect(onUpdateDraft).toHaveBeenLastCalledWith({ effects: { interfaceOpacity: 0.41 } });
 
-    fireEvent.change(screen.getByRole("slider", { name: "右侧栏透明度" }), { target: { value: "53" } });
+    fireEvent.change(screen.getByRole("slider", { name: "右侧栏（审阅面板）透明度" }), { target: { value: "53" } });
     expect(onUpdateDraft).toHaveBeenLastCalledWith({ effects: { rightSidebarOpacity: 0.53 } });
 
-    await user.click(screen.getByRole("checkbox", { name: "同步调整四个区域" }));
-    fireEvent.change(screen.getByRole("slider", { name: "底部栏透明度" }), { target: { value: "67" } });
+    await user.click(screen.getByRole("checkbox", { name: "同步调整全部界面区域" }));
+    fireEvent.change(screen.getByRole("slider", { name: "输入区透明度" }), { target: { value: "67" } });
     expect(onUpdateDraft).toHaveBeenLastCalledWith({
       effects: {
+        interfaceOpacity: 0.67,
         leftSidebarOpacity: 0.67,
         topBarOpacity: 0.67,
         rightSidebarOpacity: 0.67,
         bottomBarOpacity: 0.67,
+        inputOpacity: 0.67,
       },
     });
   });

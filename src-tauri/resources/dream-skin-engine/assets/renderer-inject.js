@@ -23,6 +23,7 @@
     "dream-layout-left-open",
     "dream-layout-right-open",
     "dream-layout-bottom-open",
+    "dream-input-custom",
   ];
   const ROOT_PROPERTIES = [
     "--dream-art",
@@ -43,6 +44,7 @@
     "--dream-top-bar-opacity",
     "--dream-right-sidebar-opacity",
     "--dream-bottom-bar-opacity",
+    "--dream-input-opacity",
     "--dream-tone-mode",
     "--dream-tone-strength",
     "--dream-duotone-shadow",
@@ -54,16 +56,19 @@
     "--dream-art-offset-x",
     "--dream-art-offset-y",
   ];
+  const SURFACE_CLASS_BY_NAME = {
+    main: "dream-surface-main",
+    top: "dream-surface-top",
+    left: "dream-surface-left",
+    right: "dream-surface-right",
+    bottom: "dream-surface-bottom",
+    input: "dream-surface-input",
+    card: "dream-control-card",
+  };
   const SURFACE_CLASSES = [
-    "dream-surface-main",
-    "dream-surface-top",
-    "dream-surface-left",
-    "dream-surface-right",
-    "dream-surface-bottom",
-    "dream-control-card",
+    ...Object.values(SURFACE_CLASS_BY_NAME),
     "dream-control-input",
   ];
-  const HOME_UTILITY_CLASS = "dream-home-utility";
   const installToken = {};
   let samplingNativeShell = false;
   let observer = null;
@@ -94,6 +99,7 @@
 
   const normalizeConfig = (value) => {
     const config = value && typeof value === "object" ? value : {};
+    const schemaVersion = config.schemaVersion ?? 5;
     const art = config.art && typeof config.art === "object" ? config.art : {};
     const effects = config.effects && typeof config.effects === "object" ? config.effects : {};
     const hasNumber = (candidate) =>
@@ -131,6 +137,16 @@
       1,
       legacyField ? bounded(effects[legacyField], 0, 1, interfaceOpacity) : interfaceOpacity,
     );
+    const inputOpacity = effects.inputOpacity !== undefined
+      ? bounded(effects.inputOpacity, 0, 1, .9)
+      : effects.composerOpacity !== undefined
+        ? bounded(effects.composerOpacity, 0, 1, .9)
+        : schemaVersion <= 4 && effects.bottomBarOpacity !== undefined
+          ? bounded(effects.bottomBarOpacity, 0, 1, .9)
+          : .9;
+    const bottomBarOpacity = schemaVersion === 5
+      ? regionOpacity("bottomBarOpacity")
+      : interfaceOpacity;
     return {
       appearance,
       safeArea,
@@ -149,7 +165,8 @@
         leftSidebarOpacity: regionOpacity("leftSidebarOpacity", "sidebarOpacity"),
         topBarOpacity: regionOpacity("topBarOpacity"),
         rightSidebarOpacity: regionOpacity("rightSidebarOpacity"),
-        bottomBarOpacity: regionOpacity("bottomBarOpacity", "composerOpacity"),
+        bottomBarOpacity,
+        inputOpacity,
         toneMode,
         toneStrength: bounded(effects.toneStrength, 0, 1, 1),
         duotoneShadow: hexColor(effects.duotoneShadow, "#1C1B22"),
@@ -190,7 +207,7 @@
   const existingStyle = document.getElementById(STYLE_ID);
   if (existingStyle) {
     existingStyle.textContent = cssText;
-    existingStyle.dataset.dreamVersion = "5";
+    existingStyle.dataset.dreamVersion = "6";
   }
 
   const analyzeArt = () => new Promise((resolve) => {
@@ -332,7 +349,6 @@
     document.querySelectorAll(".dream-home").forEach((node) => node.classList.remove("dream-home"));
     document.querySelectorAll(".dream-task").forEach((node) => node.classList.remove("dream-task"));
     document.querySelectorAll(".dream-home-shell").forEach((node) => node.classList.remove("dream-home-shell"));
-    document.querySelectorAll(`.${HOME_UTILITY_CLASS}`).forEach((node) => node.classList.remove(HOME_UTILITY_CLASS));
     for (const [node, classes] of matchedSurfaceElements) node.classList.remove(...classes);
     matchedSurfaceElements.clear();
     for (const name of Object.keys(surfaceState)) surfaceState[name] = { available: false, count: 0 };
@@ -390,6 +406,8 @@
     root.style.setProperty("--dream-top-bar-opacity", String(config.effects.topBarOpacity));
     root.style.setProperty("--dream-right-sidebar-opacity", String(config.effects.rightSidebarOpacity));
     root.style.setProperty("--dream-bottom-bar-opacity", String(config.effects.bottomBarOpacity));
+    root.style.setProperty("--dream-input-opacity", String(config.effects.inputOpacity));
+    root.classList.toggle("dream-input-custom", Math.abs(config.effects.inputOpacity - .9) > .0001);
     root.style.setProperty("--dream-tone-mode", config.effects.toneMode);
     root.style.setProperty("--dream-tone-strength", String(config.effects.toneStrength));
     root.style.setProperty("--dream-duotone-shadow", config.effects.duotoneShadow);
@@ -432,9 +450,7 @@
     const counts = Object.fromEntries(Object.keys(surfaceState).map((name) => [name, 0]));
     const mark = (name, node) => {
       if (!isVisibleSurface(node)) return;
-      const className = name === "card" || name === "input"
-        ? `dream-control-${name}`
-        : `dream-surface-${name}`;
+      const className = SURFACE_CLASS_BY_NAME[name];
       const classes = next.get(node) ?? new Set();
       if (!classes.has(className)) {
         classes.add(className);
@@ -452,6 +468,12 @@
         }
       }
     };
+    const markControlInput = (node) => {
+      if (!isVisibleSurface(node)) return;
+      const classes = next.get(node) ?? new Set();
+      classes.add("dream-control-input");
+      next.set(node, classes);
+    };
 
     mark("main", shellMain);
     markAll("top", [
@@ -459,54 +481,61 @@
       "header.app-header-tint",
     ]);
     markAll("left", ["aside.app-shell-left-panel"]);
-    markAll("right", [
-      'aside[class~="z-[41]"][class~="ml-auto"][class~="shrink-0"][class~="overflow-visible"]',
-      'aside[aria-label*="panel" i]',
-      'aside[aria-label*="sidebar" i]',
-      '[role="complementary"][data-testid*="panel" i]',
-      '[role="complementary"][data-testid*="sidebar" i]',
-    ]);
 
     const viewportWidth = Math.max(1, Number(globalThis.innerWidth || document.documentElement?.clientWidth || 1));
     const viewportHeight = Math.max(1, Number(globalThis.innerHeight || document.documentElement?.clientHeight || 1));
-    for (const node of queryAll('aside, [role="complementary"]')) {
-      if (node.matches?.("aside.app-shell-left-panel") || !isVisibleSurface(node)) continue;
-      const rect = node.getBoundingClientRect();
-      const touchesRight = rect.right >= viewportWidth - Math.max(8, viewportWidth * .025);
-      const panelSized = rect.width >= Math.min(160, viewportWidth * .16) &&
-        rect.width <= viewportWidth * .55 && rect.height >= viewportHeight * .32;
-      if (touchesRight && panelSized) mark("right", node);
+    const rightPanel = queryAll('[data-app-shell-focus-area="right-panel"]').find(isVisibleSurface);
+    if (rightPanel) {
+      mark("right", rightPanel);
+    } else {
+      const rightFallback = queryAll(
+        'aside[class~="z-[41]"][class~="ml-auto"][class~="shrink-0"][class~="overflow-visible"]',
+      ).find((node) => {
+        if (!isVisibleSurface(node) || queryAll('[data-tab-id="diff"]', node).length === 0) return false;
+        const rect = node.getBoundingClientRect();
+        return rect.right >= viewportWidth - Math.max(8, viewportWidth * .025) &&
+          rect.width >= Math.min(160, viewportWidth * .16) && rect.width <= viewportWidth * .55 &&
+          rect.height >= viewportHeight * .32;
+      });
+      if (rightFallback) mark("right", rightFallback);
     }
 
-    markAll("bottom", [
-      ".composer-surface-chrome",
-      `.${HOME_UTILITY_CLASS}`,
-      '[class~="sticky"][class~="bottom-0"][class~="mt-auto"]',
-    ]);
-    for (const node of queryAll(
-      'main.main-surface [class~="shrink-0"][class~="overflow-visible"]',
-    )) {
-      if (!isVisibleSurface(node)) continue;
-      const rect = node.getBoundingClientRect();
-      const touchesBottom = rect.bottom >= viewportHeight - Math.max(8, viewportHeight * .025);
-      const dockSized = rect.width >= viewportWidth * .4 && rect.height >= 80 && rect.height <= viewportHeight * .65;
-      if (!touchesBottom || !dockSized) continue;
-      mark("bottom", node);
-      for (const surface of queryAll('[class~="bg-token-main-surface-primary"]', node)) {
-        mark("bottom", surface);
-      }
+    const bottomPanel = queryAll('[data-app-shell-focus-area="bottom-panel"]').find((node) =>
+      isVisibleSurface(node) &&
+      queryAll('[data-app-shell-tab-panel-controller="bottom"]', node).length > 0
+    );
+    if (bottomPanel) {
+      mark("bottom", bottomPanel);
+    } else {
+      const shellRect = shellMain.getBoundingClientRect();
+      const bottomFallback = queryAll('[data-codex-terminal][data-codex-xterm]')
+        .map((node) => node.closest?.('[class~="shrink-0"][class~="overflow-visible"]'))
+        .find((node) => {
+          if (!isVisibleSurface(node)) return false;
+          const rect = node.getBoundingClientRect();
+          const tolerance = Math.max(8, viewportHeight * .025);
+          return rect.left >= shellRect.left - tolerance && rect.right <= shellRect.right + tolerance &&
+            rect.bottom >= shellRect.bottom - tolerance && rect.width >= shellRect.width * .4 &&
+            rect.height >= 80 && rect.height <= shellRect.height * .65;
+        });
+      if (bottomFallback) mark("bottom", bottomFallback);
     }
+
+    const composer = document.querySelector(".composer-surface-chrome");
+    if (composer) mark("input", composer);
     markAll("card", [
       ".group\\/home-suggestions button",
       '[role="main"] [data-testid*="card" i]',
       '[role="main"] [role="listitem"] > button',
     ]);
-    markAll("input", [
+    for (const selector of [
       ".ProseMirror",
       'textarea',
       'input:not([type="range"]):not([type="checkbox"]):not([type="radio"])',
       '[contenteditable="true"]',
-    ]);
+    ]) {
+      for (const node of queryAll(selector)) markControlInput(node);
+    }
 
     for (const [node, classes] of matchedSurfaceElements) {
       const nextClasses = next.get(node) ?? new Set();
@@ -551,9 +580,9 @@
       style.id = STYLE_ID;
       (document.head || root).appendChild(style);
     }
-    if (style.dataset.dreamVersion !== "5") {
+    if (style.dataset.dreamVersion !== "6") {
       style.textContent = cssText;
-      style.dataset.dreamVersion = "5";
+      style.dataset.dreamVersion = "6";
     }
 
     const home = document.querySelector('[role="main"]:has([data-testid="home-icon"])');
@@ -561,11 +590,6 @@
       candidate.classList.toggle("dream-home", candidate === home);
       candidate.classList.toggle("dream-task", candidate !== home);
     }
-    const utilityBars = new Set(home ? home.querySelectorAll('[class*="_homeUtilityBar_"]') : []);
-    for (const candidate of document.querySelectorAll(`.${HOME_UTILITY_CLASS}`)) {
-      if (!utilityBars.has(candidate)) candidate.classList.remove(HOME_UTILITY_CLASS);
-    }
-    for (const candidate of utilityBars) candidate.classList.add(HOME_UTILITY_CLASS);
     shellMain.classList.toggle("dream-home-shell", Boolean(home));
     root.classList.toggle("dream-route-home", Boolean(home));
     root.classList.toggle("dream-route-task", !home);
@@ -645,7 +669,7 @@
     config,
     surfaces: surfaceState,
     installToken,
-    version: "1.6.0",
+    version: "1.7.0",
   };
   ensure();
   analyzeArt().then((result) => {
@@ -655,5 +679,5 @@
     state.profile = result;
     ensure();
   });
-  return { installed: true, version: "1.6.0", adaptive: true, semanticSurfaces: true };
+  return { installed: true, version: "1.7.0", adaptive: true, semanticSurfaces: true };
 })(__DREAM_CSS_JSON__, __DREAM_ART_JSON__, __DREAM_THEME_JSON__)

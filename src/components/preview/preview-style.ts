@@ -11,6 +11,7 @@ export interface PreviewStyle {
   topBarOpacity: number;
   rightSidebarOpacity: number;
   bottomBarOpacity: number;
+  inputOpacity: number;
   artworkVisible: boolean;
 }
 
@@ -27,6 +28,7 @@ export function buildPreviewStyle(theme: ThemeDocument, mode: PreviewMode): Prev
     topBarOpacity: theme.effects.topBarOpacity,
     rightSidebarOpacity: theme.effects.rightSidebarOpacity,
     bottomBarOpacity: theme.effects.bottomBarOpacity,
+    inputOpacity: theme.effects.inputOpacity,
     artworkVisible: taskArtworkVisible,
   };
 }

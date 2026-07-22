@@ -31,6 +31,7 @@ const DEFAULT_EFFECTS = {
   topBarOpacity: 0.78,
   rightSidebarOpacity: 0.78,
   bottomBarOpacity: 0.78,
+  inputOpacity: 0.9,
   toneMode: "original",
   toneStrength: 1,
   duotoneShadow: "#1C1B22",
@@ -48,6 +49,8 @@ test("bundled default uses the redistributable Dream Portal artwork", async () =
   assert.equal(theme.id, "preset-dream-portal");
   assert.equal(theme.name, "梦境门户");
   assert.equal(theme.image, "portal-hero.png");
+  assert.equal(theme.schemaVersion, 5);
+  assert.equal(theme.effects.inputOpacity, 0.9);
   assert.equal(
     createHash("sha256").update(image).digest("hex"),
     "31bde93bb02d6723e0b6aa0ead675577604120acb0a6799163dd37f5cdd0a08e",
@@ -61,25 +64,25 @@ test("a verified installed-version mismatch ends verification immediately", asyn
   assert.equal(isInstalledVersionMismatch({
     installed: true,
     version: "1.3.0",
-    expectedVersion: "1.6.0",
+    expectedVersion: "1.7.0",
     pass: false,
   }), true);
   assert.equal(isInstalledVersionMismatch({
     installed: true,
-    version: "1.6.0",
-    expectedVersion: "1.6.0",
+    version: "1.7.0",
+    expectedVersion: "1.7.0",
     pass: false,
   }), false);
   assert.equal(isInstalledVersionMismatch({
     installed: false,
     version: "1.3.0",
-    expectedVersion: "1.6.0",
+    expectedVersion: "1.7.0",
     pass: false,
   }), false);
   assert.equal(isInstalledVersionMismatch({
     installed: true,
     version: null,
-    expectedVersion: "1.6.0",
+    expectedVersion: "1.7.0",
     pass: false,
   }), false);
 });
@@ -122,15 +125,15 @@ function baseTheme(overrides = {}) {
   };
 }
 
-test("schema 1 payload receives schema 4 scale and effect defaults", async () => {
+test("schema 1 payload receives schema 5 scale and effect defaults", async () => {
   const theme = baseTheme({ schemaVersion: 1 });
   delete theme.effects;
   const result = await withTheme(theme, checkPayload);
 
   assert.equal(result.code, 0, result.stderr);
   const output = JSON.parse(result.stdout);
-  assert.equal(output.version, "1.6.0");
-  assert.equal(output.schemaVersion, 4);
+  assert.equal(output.version, "1.7.0");
+  assert.equal(output.schemaVersion, 5);
   assert.equal(output.art.scale, 1);
   assert.deepEqual(output.effects, DEFAULT_EFFECTS);
   assert.equal(output.unresolvedTemplateTokens, false);
@@ -150,12 +153,13 @@ test("schema 2 payload gives present region values precedence and rounds their m
 
   assert.equal(result.code, 0, result.stderr);
   const output = JSON.parse(result.stdout);
-  assert.equal(output.schemaVersion, 4);
+  assert.equal(output.schemaVersion, 5);
   assert.equal(output.effects.interfaceOpacity, 0.4);
   assert.equal(output.effects.leftSidebarOpacity, 0.2);
   assert.equal(output.effects.topBarOpacity, 0.4);
   assert.equal(output.effects.rightSidebarOpacity, 0.60003);
-  assert.equal(output.effects.bottomBarOpacity, 1);
+  assert.equal(output.effects.bottomBarOpacity, 0.4);
+  assert.equal(output.effects.inputOpacity, 1);
   for (const field of REMOVED_OPACITY_FIELDS) assert.equal(field in output.effects, false, `retained ${field}`);
 });
 
@@ -171,11 +175,12 @@ test("schema 2 payload averages legacy aliases when no region value is present",
   assert.equal(output.effects.leftSidebarOpacity, 0.31);
   assert.equal(output.effects.topBarOpacity, 0.39);
   assert.equal(output.effects.rightSidebarOpacity, 0.39);
-  assert.equal(output.effects.bottomBarOpacity, 0.47);
+  assert.equal(output.effects.bottomBarOpacity, 0.39);
+  assert.equal(output.effects.inputOpacity, 0.47);
   assert.deepEqual(Object.keys(output.effects).sort(), Object.keys(DEFAULT_EFFECTS).sort());
 });
 
-test("schema 4 payload preserves every valid enhanced effect, region, and art scale", async () => {
+test("schema 4 payload migrates composer-backed bottom opacity", async () => {
   const effects = {
     homeOpacity: 0,
     taskOpacity: 1,
@@ -201,10 +206,34 @@ test("schema 4 payload preserves every valid enhanced effect, region, and art sc
 
   assert.equal(result.code, 0, result.stderr);
   const output = JSON.parse(result.stdout);
-  assert.equal(output.schemaVersion, 4);
+  assert.equal(output.schemaVersion, 5);
   assert.equal(output.art.scale, 2.5);
-  assert.deepEqual(output.effects, effects);
+  assert.deepEqual(output.effects, {
+    ...effects,
+    bottomBarOpacity: effects.interfaceOpacity,
+    inputOpacity: effects.bottomBarOpacity,
+  });
   assert.equal(output.unresolvedTemplateTokens, false);
+});
+
+test("schema 5 payload preserves independent bottom and input opacity", async () => {
+  const result = await withTheme(baseTheme({
+    schemaVersion: 5,
+    effects: { ...DEFAULT_EFFECTS, bottomBarOpacity: 0.42, inputOpacity: 0.83 },
+  }), checkPayload);
+
+  assert.equal(result.code, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.schemaVersion, 5);
+  assert.equal(output.effects.bottomBarOpacity, 0.42);
+  assert.equal(output.effects.inputOpacity, 0.83);
+});
+
+test("injector rejects unsupported schema 6", async () => {
+  const result = await withTheme(baseTheme({ schemaVersion: 6 }), checkPayload);
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /schemaVersion/);
 });
 
 test("injector rejects enhanced values outside the Rust ranges", async () => {
@@ -221,7 +250,9 @@ test("injector rejects enhanced values outside the Rust ranges", async () => {
     ["effects.leftSidebarOpacity", { schemaVersion: 2, effects: { leftSidebarOpacity: null } }],
     ["effects.topBarOpacity", { effects: { ...DEFAULT_EFFECTS, topBarOpacity: 1.01 } }],
     ["effects.rightSidebarOpacity", { effects: { ...DEFAULT_EFFECTS, rightSidebarOpacity: -0.01 } }],
-    ["effects.bottomBarOpacity", { effects: { ...DEFAULT_EFFECTS, bottomBarOpacity: null } }],
+    ["effects.bottomBarOpacity", { schemaVersion: 5, effects: { ...DEFAULT_EFFECTS, bottomBarOpacity: null } }],
+    ["effects.inputOpacity", { schemaVersion: 5, effects: { ...DEFAULT_EFFECTS, inputOpacity: 1.01 } }],
+    ["effects.inputOpacity", { schemaVersion: 5, effects: { ...DEFAULT_EFFECTS, inputOpacity: null } }],
     ["effects.toneMode", { effects: { ...DEFAULT_EFFECTS, toneMode: "sepia" } }],
     ["effects.toneStrength", { effects: { ...DEFAULT_EFFECTS, toneStrength: 1.01 } }],
     ["effects.duotoneShadow", { effects: { ...DEFAULT_EFFECTS, duotoneShadow: "#123" } }],
@@ -237,25 +268,33 @@ test("injector rejects enhanced values outside the Rust ranges", async () => {
   }
 });
 
-function createClassList() {
-  const values = new Set();
+function createClassList(initial = []) {
+  const values = new Set(initial);
   return {
     add: (...names) => names.forEach((name) => values.add(name)),
     remove: (...names) => names.forEach((name) => values.delete(name)),
-    toggle: (name, force) => force ? (values.add(name), true) : (values.delete(name), false),
+    toggle(name, force) {
+      const enabled = force === undefined ? !values.has(name) : force;
+      if (enabled) values.add(name);
+      else values.delete(name);
+      return enabled;
+    },
     contains: (name) => values.has(name),
   };
 }
 
 async function createRendererHarness(theme, options = {}) {
+  const semanticSelectors = options.semanticSelectors ?? true;
+  const rightControllerPresent = options.rightControllerPresent ?? true;
+  const rightTabIdPresent = options.rightTabIdPresent ?? true;
   const layout = {
     sidebarPresent: options.sidebarPresent ?? true,
     rightPresent: options.rightPresent ?? false,
     bottomPresent: options.bottomPresent ?? true,
-    dockPresent: options.dockPresent ?? false,
   };
   const properties = new Map();
   const elements = new Map();
+  const fixtureNodes = [];
   const root = {
     classList: createClassList(),
     className: "",
@@ -265,59 +304,151 @@ async function createRendererHarness(theme, options = {}) {
     },
     getAttribute: () => null,
   };
-  const makeElement = (tagName, rectangle = { x: 0, y: 0, width: 100, height: 100 }) => ({
+  const selectorMatches = (node, selector) => {
+    const candidate = selector.trim();
+    if (!candidate || candidate.includes(" ") || candidate.includes("*=")) return false;
+    if (candidate.includes(",")) {
+      return candidate.split(",").some((part) => selectorMatches(node, part));
+    }
+    if (candidate.startsWith("input:not(")) {
+      const type = node.getAttribute("type");
+      return node.tagName.toLowerCase() === "input" && !["range", "checkbox", "radio"].includes(type);
+    }
+    const tag = candidate.match(/^([a-z][a-z0-9-]*)/i)?.[1];
+    if (tag && node.tagName.toLowerCase() !== tag.toLowerCase()) return false;
+    for (const className of candidate.matchAll(/\.([a-z0-9_-]+)/gi)) {
+      if (!node.classList.contains(className[1])) return false;
+    }
+    for (const className of candidate.matchAll(/\[class~="([^"]+)"\]/g)) {
+      if (!node.classList.contains(className[1])) return false;
+    }
+    const attributeSelectors = candidate.replace(/\[class~="[^"]+"\]/g, "");
+    for (const attribute of attributeSelectors.matchAll(/\[([a-z0-9-]+)(?:="([^"]*)")?\]/gi)) {
+      const actual = node.getAttribute(attribute[1]);
+      if (actual === null || (attribute[2] !== undefined && actual !== attribute[2])) return false;
+    }
+    return true;
+  };
+  const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
+  const queryWithin = (node, selector) => descendants(node).filter((candidate) =>
+    isPresent(candidate) && selectorMatches(candidate, selector));
+  const makeElement = (
     tagName,
-    isConnected: true,
-    classList: createClassList(),
-    dataset: {},
-    style: { setProperty() {}, removeProperty() {} },
-    parentElement: null,
-    setAttribute() {},
-    appendChild(child) { child.parentElement = this; if (child.id) elements.set(child.id, child); },
-    remove() { if (this.id) elements.delete(this.id); },
-    getBoundingClientRect() {
-      return { ...rectangle, left: rectangle.x, top: rectangle.y,
-        right: rectangle.x + rectangle.width, bottom: rectangle.y + rectangle.height };
-    },
-    matches(selector) {
-      return selector === "aside.app-shell-left-panel" && this === sidebar;
-    },
-    querySelectorAll() { return []; },
-  });
+    rectangle = { x: 0, y: 0, width: 100, height: 100 },
+    initialAttributes = {},
+  ) => {
+    const attributes = new Map(Object.entries(initialAttributes));
+    const node = {
+      tagName,
+      isConnected: true,
+      classList: createClassList((initialAttributes.class ?? "").split(/\s+/).filter(Boolean)),
+      dataset: {},
+      style: { setProperty() {}, removeProperty() {} },
+      parentElement: null,
+      children: [],
+      getAttribute(name) { return attributes.get(name) ?? null; },
+      setAttribute(name, value) {
+        attributes.set(name, String(value));
+        if (name === "class") {
+          for (const className of String(value).split(/\s+/).filter(Boolean)) this.classList.add(className);
+        }
+      },
+      appendChild(child) {
+        child.parentElement = this;
+        if (!this.children.includes(child)) this.children.push(child);
+        if (child.id) elements.set(child.id, child);
+      },
+      remove() {
+        if (this.id) elements.delete(this.id);
+        if (this.parentElement) {
+          this.parentElement.children = this.parentElement.children.filter((child) => child !== this);
+        }
+      },
+      getBoundingClientRect() {
+        return { ...rectangle, left: rectangle.x, top: rectangle.y,
+          right: rectangle.x + rectangle.width, bottom: rectangle.y + rectangle.height };
+      },
+      matches(selector) { return selectorMatches(this, selector); },
+      closest(selector) {
+        for (let candidate = this; candidate; candidate = candidate.parentElement) {
+          if (selectorMatches(candidate, selector)) return candidate;
+        }
+        return null;
+      },
+      querySelector(selector) { return queryWithin(this, selector)[0] ?? null; },
+      querySelectorAll(selector) { return queryWithin(this, selector); },
+    };
+    fixtureNodes.push(node);
+    return node;
+  };
   const body = makeElement("body");
   const head = makeElement("head");
-  const main = makeElement("main", { x: 220, y: 25, width: 1080, height: 805 });
-  const sidebar = makeElement("aside", { x: 0, y: 25, width: 220, height: 805 });
-  const right = makeElement("aside", { x: 980, y: 25, width: 320, height: 805 });
-  const composer = makeElement("div", { x: 390, y: 730, width: 520, height: 90 });
-  const dock = makeElement("div", { x: 220, y: 630, width: 1080, height: 200 });
-  const dockSurface = makeElement("div", { x: 220, y: 630, width: 1080, height: 200 });
-  dock.querySelectorAll = (selector) => selector === '[class~="bg-token-main-surface-primary"]' ? [dockSurface] : [];
+  const main = makeElement("main", { x: 220, y: 25, width: 1080, height: 805 }, {
+    class: "main-surface",
+  });
+  const sidebar = makeElement("aside", { x: 0, y: 25, width: 220, height: 805 }, {
+    class: "app-shell-left-panel",
+  });
+  const rightPanel = makeElement("aside", { x: 980, y: 25, width: 320, height: 805 }, {
+    class: "z-[41] ml-auto shrink-0 overflow-visible",
+    ...(semanticSelectors ? { "data-app-shell-focus-area": "right-panel" } : {}),
+  });
+  const reviewTab = makeElement("div", { x: 980, y: 25, width: 320, height: 805 }, {
+    ...(semanticSelectors && rightControllerPresent
+      ? { "data-app-shell-tab-panel-controller": "right" }
+      : {}),
+    ...(rightTabIdPresent ? { "data-tab-id": "diff" } : {}),
+  });
+  const bottomPanel = makeElement("div", { x: 220, y: 630, width: 1080, height: 200 }, {
+    class: "shrink-0 overflow-visible",
+    ...(semanticSelectors ? { "data-app-shell-focus-area": "bottom-panel" } : {}),
+  });
+  const bottomTab = makeElement("div", { x: 220, y: 630, width: 1080, height: 200 }, {
+    ...(semanticSelectors ? { "data-app-shell-tab-panel-controller": "bottom" } : {}),
+    "data-tab-id": "terminal",
+  });
+  const terminal = makeElement("div", { x: 240, y: 680, width: 1040, height: 130 }, {
+    "data-codex-terminal": "true",
+    "data-codex-xterm": "true",
+  });
+  const stickyComposerWrapper = makeElement("div", { x: 220, y: 700, width: 1080, height: 130 }, {
+    class: "sticky bottom-0 mt-auto",
+  });
+  const composer = makeElement("div", { x: 390, y: 730, width: 520, height: 90 }, {
+    class: "composer-surface-chrome",
+  });
+  const genericAside = makeElement("aside", { x: 1010, y: 80, width: 290, height: 600 }, {
+    "aria-label": "Inspector panel",
+  });
+  const genericInput = makeElement("input", { x: 40, y: 760, width: 180, height: 32 }, {
+    type: "text",
+  });
+
+  body.appendChild(sidebar);
+  body.appendChild(main);
+  body.appendChild(rightPanel);
+  body.appendChild(genericAside);
+  body.appendChild(genericInput);
+  rightPanel.appendChild(reviewTab);
+  main.appendChild(bottomPanel);
+  bottomPanel.appendChild(bottomTab);
+  bottomTab.appendChild(terminal);
+  main.appendChild(stickyComposerWrapper);
+  stickyComposerWrapper.appendChild(composer);
+
+  function isPresent(node) {
+    if (node === sidebar && !layout.sidebarPresent) return false;
+    if ((node === rightPanel || node === reviewTab) && !layout.rightPresent) return false;
+    if ([bottomPanel, bottomTab, terminal].includes(node) && !layout.bottomPresent) return false;
+    return node.parentElement ? isPresent(node.parentElement) : true;
+  }
+
   const document = {
     documentElement: root,
     body,
     head,
-    querySelector(selector) {
-      if (selector === "main.main-surface") return main;
-      if (selector === "aside.app-shell-left-panel") return layout.sidebarPresent ? sidebar : null;
-      return null;
-    },
-    querySelectorAll(selector) {
-      if (selector === "aside.app-shell-left-panel") return layout.sidebarPresent ? [sidebar] : [];
-      if (selector === 'aside, [role="complementary"]') {
-        return [
-          ...(layout.sidebarPresent ? [sidebar] : []),
-          ...(layout.rightPresent ? [right] : []),
-        ];
-      }
-      if (selector.startsWith('aside[class~="z-[41]"') || selector.startsWith('aside[aria-label') ||
-          selector.startsWith('[role="complementary"]')) return [];
-      if (selector === ".composer-surface-chrome") return layout.bottomPresent ? [composer] : [];
-      if (selector === 'main.main-surface [class~="shrink-0"][class~="overflow-visible"]') {
-        return layout.dockPresent ? [dock] : [];
-      }
-      return [];
-    },
+    querySelector: (selector) => fixtureNodes.find((node) => isPresent(node) && selectorMatches(node, selector)) ?? null,
+    querySelectorAll: (selector) => fixtureNodes.filter((node) => isPresent(node) && selectorMatches(node, selector)),
     getElementById: (id) => elements.get(id) ?? null,
     createElement: (tagName) => makeElement(tagName),
   };
@@ -353,10 +484,27 @@ async function createRendererHarness(theme, options = {}) {
     .replace("__DREAM_ART_JSON__", JSON.stringify("data:image/png;base64,AA=="))
     .replace("__DREAM_THEME_JSON__", JSON.stringify(theme));
   vm.runInNewContext(source, context);
-  return { context, root, properties, elements, layout, main, sidebar, right, composer, dock, dockSurface };
+  return {
+    context,
+    root,
+    properties,
+    elements,
+    layout,
+    main,
+    sidebar,
+    rightPanel,
+    reviewTab,
+    bottomPanel,
+    bottomTab,
+    terminal,
+    stickyComposerWrapper,
+    composer,
+    genericAside,
+    genericInput,
+  };
 }
 
-test("renderer applies interface and independent region opacity variables and cleanup removes them", async () => {
+test("renderer applies schema 5 region and input opacity variables and cleanup removes them", async () => {
   const effects = {
     homeOpacity: 0.84,
     taskOpacity: 0.27,
@@ -369,6 +517,7 @@ test("renderer applies interface and independent region opacity variables and cl
     topBarOpacity: 0.32,
     rightSidebarOpacity: 0.43,
     bottomBarOpacity: 0.54,
+    inputOpacity: 0.74,
     toneMode: "wash",
     toneStrength: 0.66,
     duotoneShadow: "#010203",
@@ -376,6 +525,7 @@ test("renderer applies interface and independent region opacity variables and cl
     washColor: "#456789",
   };
   const theme = baseTheme({
+    schemaVersion: 5,
     art: { focusX: 0.5, focusY: 0.46, scale: 1.4, safeArea: "auto", taskMode: "auto" },
     effects,
   });
@@ -386,25 +536,27 @@ test("renderer applies interface and independent region opacity variables and cl
   assert.equal(properties.get("--dream-top-bar-opacity"), "0.32");
   assert.equal(properties.get("--dream-right-sidebar-opacity"), "0.43");
   assert.equal(properties.get("--dream-bottom-bar-opacity"), "0.54");
+  assert.equal(properties.get("--dream-input-opacity"), "0.74");
   assert.equal(properties.has("--dream-sidebar-opacity"), false);
   assert.equal(properties.has("--dream-composer-opacity"), false);
   assert.equal(root.classList.contains("codex-dream-skin"), true);
-  assert.ok(elements.has("codex-dream-skin-style"));
-  assert.equal(context.window.__CODEX_DREAM_SKIN_STATE__.version, "1.6.0");
+  assert.equal(root.classList.contains("dream-input-custom"), true);
+  assert.equal(elements.get("codex-dream-skin-style")?.dataset.dreamVersion, "6");
+  assert.equal(context.window.__CODEX_DREAM_SKIN_STATE__.version, "1.7.0");
   assert.equal(context.window.__CODEX_DREAM_SKIN_STATE__.surfaces.main.available, true);
 
   assert.equal(context.window.__CODEX_DREAM_SKIN_STATE__.cleanup(), true);
   assert.equal(properties.size, 0);
   assert.equal(root.classList.contains("codex-dream-skin"), false);
+  assert.equal(root.classList.contains("dream-input-custom"), false);
   assert.equal(elements.has("codex-dream-skin-style"), false);
 });
 
-test("renderer stays installed while side panels and the bottom composer toggle", async () => {
+test("renderer maps semantic side, review, bottom, and composer surfaces independently", async () => {
   const harness = await createRendererHarness(baseTheme(), {
     sidebarPresent: false,
     rightPresent: false,
     bottomPresent: false,
-    dockPresent: false,
   });
   const state = harness.context.window.__CODEX_DREAM_SKIN_STATE__;
 
@@ -413,17 +565,28 @@ test("renderer stays installed while side panels and the bottom composer toggle"
   assert.equal(state.surfaces.left.available, false);
   assert.equal(state.surfaces.right.available, false);
   assert.equal(state.surfaces.bottom.available, false);
+  assert.equal(state.surfaces.input.available, true);
+  assert.equal(harness.composer.classList.contains("dream-surface-input"), true);
+  assert.equal(harness.composer.classList.contains("dream-surface-bottom"), false);
+  assert.equal(harness.genericAside.classList.contains("dream-surface-right"), false);
+  assert.equal(harness.stickyComposerWrapper.classList.contains("dream-surface-bottom"), false);
+  assert.equal(harness.genericInput.classList.contains("dream-control-input"), true);
+  assert.equal(state.surfaces.input.count, 1);
 
   harness.layout.sidebarPresent = true;
   harness.layout.rightPresent = true;
   harness.layout.bottomPresent = true;
-  harness.layout.dockPresent = true;
   state.ensure();
   assert.equal(harness.sidebar.classList.contains("dream-surface-left"), true);
-  assert.equal(harness.right.classList.contains("dream-surface-right"), true);
-  assert.equal(harness.composer.classList.contains("dream-surface-bottom"), true);
-  assert.equal(harness.dock.classList.contains("dream-surface-bottom"), true);
-  assert.equal(harness.dockSurface.classList.contains("dream-surface-bottom"), true);
+  assert.equal(harness.rightPanel.classList.contains("dream-surface-right"), true);
+  assert.equal(harness.bottomPanel.classList.contains("dream-surface-bottom"), true);
+  assert.equal(harness.composer.classList.contains("dream-surface-input"), true);
+  assert.equal(harness.composer.classList.contains("dream-surface-bottom"), false);
+  assert.equal(harness.genericAside.classList.contains("dream-surface-right"), false);
+  assert.equal(harness.stickyComposerWrapper.classList.contains("dream-surface-bottom"), false);
+  assert.equal(state.surfaces.bottom.available, true);
+  assert.equal(state.surfaces.right.available, true);
+  assert.equal(state.surfaces.input.available, true);
   assert.equal(harness.root.classList.contains("dream-layout-left-open"), true);
   assert.equal(harness.root.classList.contains("dream-layout-right-open"), true);
   assert.equal(harness.root.classList.contains("dream-layout-bottom-open"), true);
@@ -431,14 +594,44 @@ test("renderer stays installed while side panels and the bottom composer toggle"
   harness.layout.sidebarPresent = false;
   harness.layout.rightPresent = false;
   harness.layout.bottomPresent = false;
-  harness.layout.dockPresent = false;
   state.ensure();
   assert.equal(harness.root.classList.contains("codex-dream-skin"), true);
   assert.equal(harness.sidebar.classList.contains("dream-surface-left"), false);
-  assert.equal(harness.right.classList.contains("dream-surface-right"), false);
+  assert.equal(harness.rightPanel.classList.contains("dream-surface-right"), false);
+  assert.equal(harness.bottomPanel.classList.contains("dream-surface-bottom"), false);
+  assert.equal(harness.composer.classList.contains("dream-surface-input"), true);
   assert.equal(harness.composer.classList.contains("dream-surface-bottom"), false);
-  assert.equal(harness.dock.classList.contains("dream-surface-bottom"), false);
   assert.ok(harness.elements.has("codex-dream-skin-chrome"));
+});
+
+test("renderer limits panel fallbacks to the diff aside and terminal dock", async () => {
+  const harness = await createRendererHarness(baseTheme(), {
+    rightPresent: true,
+    bottomPresent: true,
+    semanticSelectors: false,
+  });
+  const state = harness.context.window.__CODEX_DREAM_SKIN_STATE__;
+
+  assert.equal(harness.rightPanel.classList.contains("dream-surface-right"), true);
+  assert.equal(harness.bottomPanel.classList.contains("dream-surface-bottom"), true);
+  assert.equal(harness.genericAside.classList.contains("dream-surface-right"), false);
+  assert.equal(harness.stickyComposerWrapper.classList.contains("dream-surface-bottom"), false);
+  assert.equal(state.surfaces.right.count, 1);
+  assert.equal(state.surfaces.bottom.count, 1);
+});
+
+test("renderer trusts the live semantic review host without a controller child", async () => {
+  const harness = await createRendererHarness(baseTheme(), {
+    rightPresent: true,
+    bottomPresent: false,
+    rightControllerPresent: false,
+    rightTabIdPresent: false,
+  });
+  const state = harness.context.window.__CODEX_DREAM_SKIN_STATE__;
+
+  assert.equal(harness.rightPanel.classList.contains("dream-surface-right"), true);
+  assert.equal(state.surfaces.right.available, true);
+  assert.equal(state.surfaces.right.count, 1);
 });
 
 test("renderer discovers live semantic surfaces without a version-locked region contract", async () => {
@@ -450,15 +643,22 @@ test("renderer discovers live semantic surfaces without a version-locked region 
   assert.doesNotMatch(injector, /region-contract\.js|codex-region-contract\.json|__DREAM_REGION_CONTRACT_JSON__/);
   assert.doesNotMatch(renderer, /REGION_CLASSES|regionContract|dream-region-|__DREAM_REGION_CONTRACT_JSON__/);
   assert.match(renderer, /applySemanticSurfaces/);
+  assert.match(renderer, /data-app-shell-focus-area.*bottom-panel/);
+  assert.match(renderer, /data-app-shell-focus-area.*right-panel/);
+  assert.doesNotMatch(renderer, /markAll\("bottom"[\s\S]*composer-surface-chrome/);
+  assert.doesNotMatch(renderer, /HOME_UTILITY_CLASS|aria-label\*="(?:panel|sidebar)|aside, \[role="complementary"\]/);
+  assert.doesNotMatch(renderer, /\[class~="sticky"\]\[class~="bottom-0"\]\[class~="mt-auto"\]/);
   assert.match(renderer, /dream-surface-right/);
+  assert.match(renderer, /dream-surface-input/);
   assert.match(renderer, /dream-control-card/);
-  assert.match(renderer, /version:\s*"1\.6\.0"/);
+  assert.match(renderer, /version:\s*"1\.7\.0"/);
 });
 
 test("CSS applies independent region opacity to actual semantic controls", async () => {
   const css = await fs.readFile(cssPath, "utf8");
 
   assert.match(css, /--dream-interface-opacity:\s*\.78/);
+  assert.match(css, /--dream-input-opacity:\s*\.9/);
   for (const variable of [
     "--dream-left-sidebar-opacity",
     "--dream-top-bar-opacity",
@@ -482,8 +682,9 @@ test("CSS applies independent region opacity to actual semantic controls", async
     "header.app-header-tint",
     "main.main-surface",
     ".composer-surface-chrome",
-    ".dream-home-utility",
     ".dream-surface-right",
+    ".dream-surface-bottom",
+    ".dream-surface-input",
     ".dream-control-card",
     ".dream-control-input",
   ]) assert.match(css, new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -492,6 +693,19 @@ test("CSS applies independent region opacity to actual semantic controls", async
   assert.match(css, /dream-surface-top[\s\S]*var\(--dream-top-bar-opacity\)/);
   assert.match(css, /dream-surface-right[\s\S]*var\(--dream-right-sidebar-opacity\)/);
   assert.match(css, /dream-surface-bottom[\s\S]*var\(--dream-bottom-bar-opacity\)/);
+  assert.match(css, /dream-surface-right \[data-app-shell-tabs\][\s\S]*background-color:\s*transparent/);
+  assert.match(css, /dream-surface-bottom \[data-codex-terminal\][\s\S]*background-color:\s*transparent/);
+  assert.doesNotMatch(css, /--thread-content-max-width/);
+  assert.doesNotMatch(css, /dream-home-utility/);
+  assert.doesNotMatch(css, /dream-surface-bottom\.composer-surface-chrome/);
+  assert.match(css, /dream-input-custom[\s\S]*composer-surface-chrome\.dream-surface-input/);
+  const composerRules = [...css.matchAll(/([^{}]*composer-surface-chrome[^{}]*)\{([^{}]*)\}/g)];
+  assert.equal(composerRules.length, 1);
+  assert.doesNotMatch(
+    composerRules[0][2],
+    /(?:^|[;\s])(?:border(?:-radius)?|box-shadow|backdrop-filter|max-width|width|padding|margin)\s*:/,
+  );
+  assert.doesNotMatch(css, /composer-surface-chrome::/);
   for (const immersiveVariable of [
     "--dream-immersive-edge",
     "--dream-immersive-mid",

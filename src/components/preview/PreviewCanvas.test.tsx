@@ -48,7 +48,7 @@ Object.defineProperty(window, "ResizeObserver", { configurable: true, value: Tes
 afterEach(cleanup);
 
 const theme: ThemeDocument = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   id: "yingying",
   name: "萦萦",
   image: "art.jpg",
@@ -73,6 +73,7 @@ const theme: ThemeDocument = {
     topBarOpacity: 0.32,
     rightSidebarOpacity: 0.43,
     bottomBarOpacity: 0.54,
+    inputOpacity: 0.65,
   },
   extra: {},
 };
@@ -134,6 +135,7 @@ describe("preview style", () => {
       topBarOpacity: 0.32,
       rightSidebarOpacity: 0.43,
       bottomBarOpacity: 0.54,
+      inputOpacity: 0.65,
       artworkVisible: true,
     });
     expect(buildPreviewStyle(theme, "task")).toEqual({
@@ -145,6 +147,7 @@ describe("preview style", () => {
       topBarOpacity: 0.32,
       rightSidebarOpacity: 0.43,
       bottomBarOpacity: 0.54,
+      inputOpacity: 0.65,
       artworkVisible: true,
     });
   });
@@ -242,7 +245,7 @@ describe("PreviewCanvas", () => {
     expect(screen.getByTestId("preview-artwork")).toHaveStyle({ opacity: "0.42" });
   });
 
-  it("renders one normal-flow grid without region layers or a right panel", () => {
+  it("renders independent right, bottom, and composer surfaces in one normal-flow grid", () => {
     renderPreview();
 
     const grid = screen.getByTestId("preview-codex-grid");
@@ -250,23 +253,42 @@ describe("PreviewCanvas", () => {
     expect(within(grid).getByTestId("preview-left-navigation")).toBeInTheDocument();
     expect(within(grid).getByTestId("preview-route-header")).toBeInTheDocument();
     expect(within(grid).getByTestId("preview-main-content")).toBeInTheDocument();
+    expect(within(grid).getByTestId("preview-right-panel")).toBeInTheDocument();
+    expect(within(grid).getByTestId("preview-bottom-panel")).toBeInTheDocument();
     expect(within(grid).getByTestId("preview-composer")).toBeInTheDocument();
     expect(grid).toHaveStyle({
-      gridTemplateAreas: '"title title" "nav route" "nav main" "nav composer"',
+      gridTemplateAreas: '"title title title" "nav route right" "nav main right" "nav composer right" "nav bottom right"',
       "--preview-interface-opacity": "0.61",
+      "--preview-right-opacity": "0.43",
+      "--preview-bottom-opacity": "0.54",
+      "--preview-input-opacity": "0.65",
     });
     expect(Array.from(grid.children).map((element) => element.getAttribute("data-testid"))).toEqual([
       "preview-title-bar",
       "preview-left-navigation",
       "preview-route-header",
       "preview-main-content",
+      "preview-right-panel",
+      "preview-bottom-panel",
       "preview-composer",
     ]);
     expect(document.querySelector('[class*="preview-region-"]')).toBeNull();
-    expect(screen.queryByTestId("preview-right-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("preview-bottom-fade")).not.toBeInTheDocument();
     expect(screen.queryByTestId("preview-bottom-actions")).not.toBeInTheDocument();
     expect(within(screen.getByTestId("preview-title-bar")).getByText("CODEX")).not.toHaveStyle({ opacity: "0.61" });
+  });
+
+  it("maps each preview surface to only its dedicated opacity variable", () => {
+    const rightRule = appCss.match(/\.preview-right-panel\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const bottomRule = appCss.match(/\.preview-bottom-panel\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const composerRule = appCss.match(/\.preview-composer\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const mainRule = appCss.match(/\.preview-main-content\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+
+    expect(rightRule).toContain("--preview-right-opacity");
+    expect(bottomRule).toContain("--preview-bottom-opacity");
+    expect(composerRule).toContain("--preview-input-opacity");
+    expect(composerRule).not.toContain("--preview-bottom-opacity");
+    expect(mainRule).toContain("--preview-interface-opacity");
   });
 
   it.each([

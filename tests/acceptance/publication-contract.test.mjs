@@ -89,9 +89,9 @@ test("public documentation is bilingual, current, and explicitly unofficial", as
     assert.match(section, /OpenAI\.Codex/);
     assert.match(section, /Node\.js 24\.18\.0/);
     assert.match(section, /Node\.js 22\+/);
-    assert.match(section, /0\.1\.1/);
-    assert.match(section, /Engine 1\.6\.0/);
-    assert.match(section, /Theme schema 4/);
+    assert.match(section, /0\.2\.0/);
+    assert.match(section, /Engine 1\.7\.0/);
+    assert.match(section, /Theme schema 5/);
     assert.match(section, /PNG/);
     assert.match(section, /JPEG/);
     assert.match(section, /WebP/);
@@ -105,7 +105,7 @@ test("public documentation is bilingual, current, and explicitly unofficial", as
     assert.match(section, /npm run tauri build/);
     assert.match(
       section,
-      /src-tauri\\target\\release\\bundle\\nsis\\Codex Dream Skin Studio_0\.1\.1_x64-setup\.exe/,
+      /src-tauri\\target\\release\\bundle\\nsis\\Codex Dream Skin Studio_0\.2\.0_x64-setup\.exe/,
     );
   }
 

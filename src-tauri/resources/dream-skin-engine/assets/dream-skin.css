@@ -15,6 +15,7 @@
   --dream-top-bar-opacity: .78;
   --dream-right-sidebar-opacity: .78;
   --dream-bottom-bar-opacity: .78;
+  --dream-input-opacity: .9;
   --dream-tone-mode: original;
   --dream-tone-strength: 1;
   --dream-duotone-shadow: #1C1B22;
@@ -286,7 +287,6 @@ html.codex-dream-skin .dream-task [data-message-author-role] {
 
 /* The home route keeps the source image expressive. */
 html.codex-dream-skin .dream-home {
-  --thread-content-max-width: min(1180px, calc(100cqw - 56px)) !important;
   overflow-x: hidden !important;
   background: color-mix(in oklab, var(--dream-surface) calc(var(--dream-interface-opacity) * 100%), transparent) !important;
 }
@@ -463,19 +463,14 @@ html.codex-dream-skin.dream-tone-wash .dream-home > div:first-child > div:first-
   color: currentColor !important;
 }
 
-html.codex-dream-skin .composer-surface-chrome,
 html.codex-dream-skin .dream-surface-bottom {
   color: var(--dream-text) !important;
   background: color-mix(in oklab, var(--dream-surface-raised) calc(var(--dream-bottom-bar-opacity) * 100%), transparent) !important;
 }
 
-html.codex-dream-skin .dream-surface-bottom[class~="sticky"] {
-  background: transparent !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-}
-
+html.codex-dream-skin .dream-surface-bottom [data-app-shell-tabs],
+html.codex-dream-skin .dream-surface-bottom [class~="bg-token-main-surface-primary"],
+html.codex-dream-skin .dream-surface-bottom [data-codex-terminal],
 html.codex-dream-skin .dream-surface-bottom .xterm,
 html.codex-dream-skin .dream-surface-bottom .xterm-viewport,
 html.codex-dream-skin .dream-surface-bottom .xterm-screen {
@@ -486,12 +481,13 @@ html.codex-dream-skin .dream-surface-bottom [class~="border-token-border-default
   border-color: var(--dream-line-soft) !important;
 }
 
-html.codex-dream-skin .composer-surface-chrome,
-html.codex-dream-skin .dream-surface-bottom.composer-surface-chrome {
-  border: 1px solid var(--dream-line) !important;
-  border-radius: 18px !important;
-  box-shadow: 0 12px 34px color-mix(in oklab, var(--dream-accent) 8%, transparent) !important;
-  backdrop-filter: blur(14px) saturate(1.06) !important;
+html.codex-dream-skin.dream-input-custom
+  .composer-surface-chrome.dream-surface-input {
+  background-color: color-mix(
+    in oklab,
+    var(--color-token-input-background) calc(var(--dream-input-opacity) * 100%),
+    transparent
+  ) !important;
 }
 
 html.codex-dream-skin .ProseMirror,
@@ -528,6 +524,11 @@ html.codex-dream-skin .dream-surface-right {
   border-color: var(--dream-line-soft) !important;
   box-shadow: inset 1px 0 var(--dream-line-soft) !important;
   backdrop-filter: blur(14px) saturate(1.04) !important;
+}
+
+html.codex-dream-skin .dream-surface-right [data-app-shell-tabs],
+html.codex-dream-skin .dream-surface-right [class~="bg-token-main-surface-primary"] {
+  background-color: transparent !important;
 }
 
 html.codex-dream-skin .dream-surface-right > header {
@@ -658,39 +659,6 @@ html.codex-dream-skin.dream-art-wide main.main-surface.dream-home-shell
   backdrop-filter: blur(8px) saturate(1.04) !important;
 }
 
-/* The composer owns exactly one solid readability surface. Native bottom
-   gradients are cleared below so the control never appears double stacked. */
-html.codex-dream-skin.dream-art-wide .composer-surface-chrome {
-  color: var(--dream-text) !important;
-  background: color-mix(in oklab, var(--dream-immersive-composer) calc(var(--dream-bottom-bar-opacity) * 100%), transparent) !important;
-  border: 0 !important;
-  box-shadow: 0 10px 30px color-mix(in oklab, var(--dream-canvas) 20%, transparent),
-    inset 0 0 0 1px var(--dream-immersive-line) !important;
-  backdrop-filter: none !important;
-}
-
-html.codex-dream-skin.dream-art-wide .composer-surface-chrome::before {
-  content: none !important;
-}
-
-/* Current Codex builds render the home project picker in a hashed utility bar.
-   Merge it with the composer so the bottom control reads as one surface. */
-html.codex-dream-skin .dream-home-utility {
-  border: 1px solid var(--dream-line) !important;
-  border-bottom: 0 !important;
-  border-radius: 18px 18px 0 0 !important;
-  background: color-mix(in oklab, var(--dream-immersive-composer) calc(var(--dream-bottom-bar-opacity) * 100%), transparent) !important;
-  box-shadow: none !important;
-}
-
-html.codex-dream-skin .dream-home:has(.dream-home-utility) .composer-surface-chrome {
-  border-radius: 0 0 18px 18px !important;
-  box-shadow: 0 10px 30px color-mix(in oklab, var(--dream-canvas) 20%, transparent),
-    inset 1px 0 var(--dream-immersive-line),
-    inset -1px 0 var(--dream-immersive-line),
-    inset 0 -1px var(--dream-immersive-line) !important;
-}
-
 /* Plugins, scheduled tasks and search routes ship opaque sticky wrappers.
    Clear only full-window or sticky route chrome, leaving functional cards and
    their hover states intact. */
@@ -730,10 +698,6 @@ html.codex-dream-skin.dream-art-wide main.main-surface
 }
 
 @media (max-width: 1120px) {
-  html.codex-dream-skin .dream-home {
-    --thread-content-max-width: min(940px, calc(100cqw - 36px)) !important;
-  }
-
   .dream-home > div:first-child > div:first-child > div:first-child {
     width: calc(100% - 36px) !important;
   }

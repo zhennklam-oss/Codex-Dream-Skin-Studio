@@ -15,7 +15,7 @@ vi.mock("./lib/runtime-polling", () => ({ startSingleFlightPolling }));
 const initialize = vi.fn().mockResolvedValue(true);
 const updateDraft = vi.fn();
 const draft = {
-  schemaVersion: 4 as const,
+  schemaVersion: 5 as const,
   id: "yingying",
   name: "萦萦",
   image: "art.jpg",
@@ -29,6 +29,11 @@ const draft = {
     brightness: 1,
     maskStrength: 0.65,
     interfaceOpacity: 0.78,
+    leftSidebarOpacity: 0.78,
+    topBarOpacity: 0.78,
+    rightSidebarOpacity: 0.78,
+    bottomBarOpacity: 0.78,
+    inputOpacity: 0.9,
     toneMode: "original" as const,
     toneStrength: 1,
     duotoneShadow: "#1C1B22",
