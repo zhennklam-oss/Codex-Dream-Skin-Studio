@@ -806,8 +806,21 @@ async function verifyRemovedSession(session) {
   )()`);
 }
 
+export function rendererVerificationPass(result, hasRoleMain) {
+  return result.installed && result.version === result.expectedVersion &&
+    result.stylePresent && result.chromePresent &&
+    result.chromePointerEvents === "none" && Boolean(result.mainSurface) && result.semantic.main &&
+    (!result.sidebar || result.semantic.left) && (!result.composer || result.semantic.input) &&
+    (!result.bottomPanelVisible || result.semantic.bottom) &&
+    (Boolean(result.composer) || hasRoleMain) &&
+    (!result.homePresent || (Boolean(result.homeMarker) &&
+      (!result.suggestionsPresent || (result.cards.length >= 2 && result.cards.length <= 4))));
+}
+
 async function verifySession(session) {
+  const rendererVerificationPassSource = rendererVerificationPass.toString();
   return session.evaluate(`(() => {
+    const rendererVerificationPass = ${rendererVerificationPassSource};
     const box = (node) => {
       if (!node) return null;
       const r = node.getBoundingClientRect();
@@ -821,6 +834,7 @@ async function verifySession(session) {
         style.visibility !== 'hidden' && Number(style.opacity || 1) > 0;
     };
     const home = document.querySelector('.dream-home');
+    const homeMarker = home?.querySelector('[data-testid="home-icon"]') ?? null;
     const suggestions = home?.querySelector('.group\\\\/home-suggestions') ?? null;
     const cards = suggestions ? [...suggestions.querySelectorAll('button')].map(box) : [];
     const bottomPanel = document.querySelector('[data-app-shell-focus-area="bottom-panel"]');
@@ -833,8 +847,8 @@ async function verifySession(session) {
       chromePresent: Boolean(document.getElementById('codex-dream-skin-chrome')),
       chromePointerEvents: getComputedStyle(document.getElementById('codex-dream-skin-chrome') || document.body).pointerEvents,
       homePresent: Boolean(home),
+      homeMarker: box(homeMarker),
       suggestionsPresent: Boolean(suggestions),
-      hero: box(home?.firstElementChild?.firstElementChild?.firstElementChild),
       cards,
       composer: box(document.querySelector('.composer-surface-chrome')),
       sidebar: box(document.querySelector('aside.app-shell-left-panel')),
@@ -854,14 +868,10 @@ async function verifySession(session) {
         y: document.documentElement.scrollHeight > document.documentElement.clientHeight,
       },
     };
-    result.pass = result.installed && result.version === result.expectedVersion &&
-      result.stylePresent && result.chromePresent &&
-      result.chromePointerEvents === 'none' && Boolean(result.mainSurface) && result.semantic.main &&
-      (!result.sidebar || result.semantic.left) && (!result.composer || result.semantic.input) &&
-      (!result.bottomPanelVisible || result.semantic.bottom) &&
-      (Boolean(result.composer) || Boolean(document.querySelector('[role="main"]'))) &&
-      (!result.homePresent || (Boolean(result.hero) &&
-        (!result.suggestionsPresent || (result.cards.length >= 2 && result.cards.length <= 4))));
+    result.pass = rendererVerificationPass(
+      result,
+      Boolean(document.querySelector('[role="main"]')),
+    );
     return result;
   })()`);
 }

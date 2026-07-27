@@ -87,6 +87,44 @@ test("a verified installed-version mismatch ends verification immediately", asyn
   }), false);
 });
 
+function passingRendererVerification(overrides = {}) {
+  return {
+    installed: true,
+    version: "1.7.0",
+    expectedVersion: "1.7.0",
+    stylePresent: true,
+    chromePresent: true,
+    chromePointerEvents: "none",
+    homePresent: true,
+    homeMarker: { x: 620, y: 260, width: 24, height: 24 },
+    suggestionsPresent: true,
+    cards: Array.from({ length: 4 }, (_, index) => ({
+      x: 420 + index * 170,
+      y: 420,
+      width: 160,
+      height: 96,
+    })),
+    composer: { x: 425, y: 706, width: 736, height: 98 },
+    sidebar: { x: 0, y: 36, width: 275, height: 784 },
+    mainSurface: { x: 275, y: 36, width: 1035, height: 784 },
+    bottomPanelVisible: false,
+    semantic: { main: true, left: true, bottom: false, input: true },
+    ...overrides,
+  };
+}
+
+test("verification accepts the semantic home marker and rejects an off-screen composer", async () => {
+  const { rendererVerificationPass } = await import(pathToFileURL(injectorPath).href);
+  const currentHome = passingRendererVerification();
+
+  assert.equal(rendererVerificationPass(currentHome, true), true);
+  assert.equal(rendererVerificationPass({
+    ...currentHome,
+    semantic: { ...currentHome.semantic, input: false },
+  }, true), false);
+  assert.equal(rendererVerificationPass({ ...currentHome, homeMarker: null }, true), false);
+});
+
 async function withTheme(theme, callback) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "dream-effects-"));
   try {
@@ -724,6 +762,15 @@ test("CSS applies independent region opacity to actual semantic controls", async
   assert.doesNotMatch(css, /html\.codex-dream-skin\s+header(?:\s*[,\{])/);
   assert.match(css, /background-size:\s*var\(--dream-art-rendered-width\) var\(--dream-art-rendered-height\)/);
   assert.doesNotMatch(css, /(?:article|\[data-message-author-role\]|\.ProseMirror)[^{]*\{[^}]*(?:opacity|filter):/si);
+});
+
+test("home styling preserves native geometry", async () => {
+  const css = await fs.readFile(cssPath, "utf8");
+
+  assert.doesNotMatch(css, /\.dream-home\s*>\s*div:first-child/);
+  assert.doesNotMatch(css, /\.dream-home \[data-testid="home-icon"\]\s*\{[^}]*display:\s*none/s);
+  assert.match(css, /\.dream-home \[data-feature="game-source"\]/);
+  assert.match(css, /\.dream-home \.group\\\/home-suggestions/);
 });
 
 test("renderer and CSS contain no content-avoidance behavior", async () => {

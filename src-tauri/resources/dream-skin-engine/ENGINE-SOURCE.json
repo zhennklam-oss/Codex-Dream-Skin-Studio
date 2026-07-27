@@ -3,7 +3,7 @@
   "commit": "3af1d6d62f3a0388cc640d2f497ac3100998938e",
   "files": [
     { "path": "assets/portal-hero.png", "sha256": "31bde93bb02d6723e0b6aa0ead675577604120acb0a6799163dd37f5cdd0a08e" },
-    { "path": "assets/dream-skin.css", "sha256": "779e8e06ef88d6e04ec8d1af7cc1bb8afbb30d9dd21096f889e3366bf2f24104" },
+    { "path": "assets/dream-skin.css", "sha256": "1600da5467f7f8c3af2ff3d761bc3f035a2cf89298153758b112a220550042be" },
     { "path": "assets/renderer-inject.js", "sha256": "a10f9da96c98f800fcffc2fb2cfd5b66716e5235674e5e78a7930028bc2d9891" },
     { "path": "assets/theme.json", "sha256": "765777985e8ec9ae74e79758c85cdf4e02c200c3b1ca23159b534e86f760a143" },
     { "path": "runtime/LICENSE", "sha256": "d9c4eeda951d6d08f4aa1316b61aafcf67e6da5f79b18f8edeb56fa6abdc038c" },
@@ -12,7 +12,7 @@
     { "path": "scripts/common-windows.ps1", "sha256": "45c09a12a875f32c7c38d4261c9091608c9ff36a7c02383db97441c73715d18f" },
     { "path": "scripts/config-utf8.ps1", "sha256": "148fa682db7c451a1e72498f9b623d6a21310e15809f3b1f766e98ae6e578052" },
     { "path": "scripts/image-metadata.mjs", "sha256": "5db49cac97f513888e1697ca8361c8096413a8834df2c1b5286e9e8af51ad344" },
-    { "path": "scripts/injector.mjs", "sha256": "2ff4c2102250366b03fba333790623428ed4de465042ea6917e88191843a65e3" },
+    { "path": "scripts/injector.mjs", "sha256": "a8cd3e586a938a0fc2544e29aab463a53cab69ea7214fbfca68caebeac4b526a" },
     { "path": "scripts/install-dream-skin.ps1", "sha256": "6282cb5ab6c1c75b3a6ec65185a344c29ae22d2f80f719a99dda4c70b5a16766" },
     { "path": "scripts/restore-dream-skin.ps1", "sha256": "0ea84227b6ac44f26c11b4892836172132e433cf75a3bf6c4857aeaace0019c6" },
     { "path": "scripts/start-dream-skin.ps1", "sha256": "d786f65ece0557d37a6d8d3bdd4af46c0d39bfbc64905358def0588acc5a2724" },
