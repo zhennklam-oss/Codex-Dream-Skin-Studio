@@ -81,6 +81,21 @@
 
   const clamp = (value, min = 0, max = 1) => Math.min(max, Math.max(min, Number(value)));
   const pixel = (value) => `${Math.round(value * 1000) / 1000}px`;
+  const findBodyAppRoot = (node) => {
+    let current = node;
+    while (current?.parentElement && current.parentElement !== document.body) {
+      current = current.parentElement;
+    }
+    return current?.parentElement === document.body ? current : null;
+  };
+  const setBodyAppRoot = (node) => {
+    const next = findBodyAppRoot(node);
+    const marked = [...(document.body?.children ?? [])]
+      .filter((child) => child.classList.contains("dream-skin-app-root"));
+    if (marked.length === 1 && marked[0] === next) return;
+    for (const child of marked) child.classList.remove("dream-skin-app-root");
+    next?.classList.add("dream-skin-app-root");
+  };
   const luminance = (red, green, blue) => {
     const linear = [red, green, blue].map((value) => {
       const channel = value / 255;
@@ -349,6 +364,7 @@
     document.querySelectorAll(".dream-home").forEach((node) => node.classList.remove("dream-home"));
     document.querySelectorAll(".dream-task").forEach((node) => node.classList.remove("dream-task"));
     document.querySelectorAll(".dream-home-shell").forEach((node) => node.classList.remove("dream-home-shell"));
+    setBodyAppRoot(null);
     for (const [node, classes] of matchedSurfaceElements) node.classList.remove(...classes);
     matchedSurfaceElements.clear();
     for (const name of Object.keys(surfaceState)) surfaceState[name] = { available: false, count: 0 };
@@ -566,6 +582,7 @@
     if (!root || !document.body) return;
 
     const shellMain = document.querySelector("main.main-surface");
+    setBodyAppRoot(shellMain);
     if (!shellMain) {
       if (!root.classList.contains("codex-dream-skin")) clearSkinDom();
       return;

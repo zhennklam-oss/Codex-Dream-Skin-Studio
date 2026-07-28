@@ -126,8 +126,6 @@ html.codex-dream-skin .dream-surface-left [class*="text-token"] {
 html.codex-dream-skin main.main-surface,
 html.codex-dream-skin .dream-surface-main {
   position: relative;
-  isolation: isolate;
-  overflow: hidden !important;
   color: var(--dream-text) !important;
   background: color-mix(in oklab, var(--dream-surface) calc(var(--dream-interface-opacity) * 100%), transparent) !important;
   border-color: var(--dream-line-soft) !important;
@@ -184,6 +182,11 @@ html.codex-dream-skin.dream-theme-dark .dream-surface-top svg {
   filter: blur(var(--dream-art-blur)) saturate(var(--dream-art-saturation)) brightness(var(--dream-art-brightness));
 }
 
+html.codex-dream-skin body > .dream-skin-app-root {
+  position: relative;
+  z-index: 1;
+}
+
 #codex-dream-skin-chrome::after {
   content: "";
   position: absolute;
@@ -220,11 +223,6 @@ html.codex-dream-skin.dream-task-off #codex-dream-skin-chrome:not(.dream-home-sh
   display: none;
 }
 
-html.codex-dream-skin body > :not(#codex-dream-skin-chrome) {
-  position: relative;
-  z-index: 1;
-}
-
 html.codex-dream-skin [role="main"] {
   color: var(--dream-text);
 }
@@ -232,8 +230,6 @@ html.codex-dream-skin [role="main"] {
 /* Task routes use the art as a quiet atmospheric layer. Wide banners are shown
    at their natural width instead of being enlarged and center-cropped. */
 html.codex-dream-skin .dream-task {
-  position: relative;
-  isolation: isolate;
   min-height: 100%;
   background: color-mix(in oklab, var(--dream-surface) calc(var(--dream-interface-opacity) * 100%), transparent) !important;
 }
@@ -273,11 +269,6 @@ html.codex-dream-skin.dream-task-banner .dream-task::before {
 
 html.codex-dream-skin.dream-task-off .dream-task::before {
   display: none;
-}
-
-html.codex-dream-skin .dream-task > * {
-  position: relative;
-  z-index: 1;
 }
 
 html.codex-dream-skin .dream-task article,

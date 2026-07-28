@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import test from "node:test";
 import vm from "node:vm";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { JSDOM } from "jsdom";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const engineRoot = path.resolve(here, "..");
@@ -306,15 +307,30 @@ test("injector rejects enhanced values outside the Rust ranges", async () => {
   }
 });
 
-function createClassList(initial = []) {
+function createClassList(initial = [], onChange = () => {}) {
   const values = new Set(initial);
   return {
-    add: (...names) => names.forEach((name) => values.add(name)),
-    remove: (...names) => names.forEach((name) => values.delete(name)),
+    add: (...names) => {
+      let changed = false;
+      for (const name of names) {
+        if (!values.has(name)) {
+          values.add(name);
+          changed = true;
+        }
+      }
+      if (changed) onChange();
+    },
+    remove: (...names) => {
+      let changed = false;
+      for (const name of names) changed = values.delete(name) || changed;
+      if (changed) onChange();
+    },
     toggle(name, force) {
       const enabled = force === undefined ? !values.has(name) : force;
+      const changed = enabled !== values.has(name);
       if (enabled) values.add(name);
       else values.delete(name);
+      if (changed) onChange();
       return enabled;
     },
     contains: (name) => values.has(name),
@@ -333,8 +349,13 @@ async function createRendererHarness(theme, options = {}) {
   const properties = new Map();
   const elements = new Map();
   const fixtureNodes = [];
+  const scheduledTimeouts = new Map();
+  let nextTimeoutId = 1;
+  let observerCallback = null;
+  let observerActive = false;
+  let emitClassMutation = () => {};
   const root = {
-    classList: createClassList(),
+    classList: createClassList([], () => emitClassMutation(root)),
     className: "",
     style: {
       setProperty: (name, value) => properties.set(name, value),
@@ -379,7 +400,10 @@ async function createRendererHarness(theme, options = {}) {
     const node = {
       tagName,
       isConnected: true,
-      classList: createClassList((initialAttributes.class ?? "").split(/\s+/).filter(Boolean)),
+      classList: createClassList(
+        (initialAttributes.class ?? "").split(/\s+/).filter(Boolean),
+        () => emitClassMutation(node),
+      ),
       dataset: {},
       style: { setProperty() {}, removeProperty() {} },
       parentElement: null,
@@ -392,6 +416,9 @@ async function createRendererHarness(theme, options = {}) {
         }
       },
       appendChild(child) {
+        if (child.parentElement && child.parentElement !== this) {
+          child.parentElement.children = child.parentElement.children.filter((candidate) => candidate !== child);
+        }
         child.parentElement = this;
         if (!this.children.includes(child)) this.children.push(child);
         if (child.id) elements.set(child.id, child);
@@ -421,6 +448,10 @@ async function createRendererHarness(theme, options = {}) {
   };
   const body = makeElement("body");
   const head = makeElement("head");
+  const applicationRoot = makeElement("div");
+  applicationRoot.id = "application-root";
+  const selectionPortal = makeElement("div", undefined, { class: "fixed z-50" });
+  selectionPortal.id = "selection-portal";
   const main = makeElement("main", { x: 220, y: 25, width: 1080, height: 805 }, {
     class: "main-surface",
   });
@@ -462,11 +493,13 @@ async function createRendererHarness(theme, options = {}) {
     type: "text",
   });
 
-  body.appendChild(sidebar);
-  body.appendChild(main);
-  body.appendChild(rightPanel);
-  body.appendChild(genericAside);
-  body.appendChild(genericInput);
+  body.appendChild(applicationRoot);
+  body.appendChild(selectionPortal);
+  applicationRoot.appendChild(sidebar);
+  applicationRoot.appendChild(main);
+  applicationRoot.appendChild(rightPanel);
+  applicationRoot.appendChild(genericAside);
+  applicationRoot.appendChild(genericInput);
   rightPanel.appendChild(reviewTab);
   main.appendChild(bottomPanel);
   bottomPanel.appendChild(bottomTab);
@@ -498,7 +531,12 @@ async function createRendererHarness(theme, options = {}) {
       visualViewport: { addEventListener() {}, removeEventListener() {} },
     },
     document,
-    MutationObserver: class { observe() {} disconnect() {} takeRecords() {} },
+    MutationObserver: class {
+      constructor(callback) { observerCallback = callback; }
+      observe() { observerActive = true; }
+      disconnect() { observerActive = false; }
+      takeRecords() {}
+    },
     URL: { createObjectURL: () => "blob:test-art", revokeObjectURL() {} },
     Blob: class {},
     Image: undefined,
@@ -509,8 +547,19 @@ async function createRendererHarness(theme, options = {}) {
     innerHeight: 830,
     setInterval: () => 1,
     clearInterval() {},
-    setTimeout: (callback) => { callback(); return 1; },
-    clearTimeout() {},
+    setTimeout: (callback) => {
+      if (!options.observeClassMutations) {
+        callback();
+        return 1;
+      }
+      const id = nextTimeoutId++;
+      scheduledTimeouts.set(id, callback);
+      return id;
+    },
+    clearTimeout: (id) => scheduledTimeouts.delete(id),
+  };
+  emitClassMutation = () => {
+    if (options.observeClassMutations && observerActive) observerCallback?.();
   };
   context.window.window = context.window;
   context.window.document = document;
@@ -525,9 +574,13 @@ async function createRendererHarness(theme, options = {}) {
   return {
     context,
     root,
+    body,
     properties,
     elements,
     layout,
+    makeElement,
+    applicationRoot,
+    selectionPortal,
     main,
     sidebar,
     rightPanel,
@@ -539,6 +592,16 @@ async function createRendererHarness(theme, options = {}) {
     composer,
     genericAside,
     genericInput,
+    drainScheduledTimeouts(limit = 10) {
+      let executions = 0;
+      while (scheduledTimeouts.size > 0 && executions < limit) {
+        const [id, callback] = scheduledTimeouts.entries().next().value;
+        scheduledTimeouts.delete(id);
+        callback();
+        executions += 1;
+      }
+      return { executions, pending: scheduledTimeouts.size };
+    },
   };
 }
 
@@ -642,6 +705,37 @@ test("renderer maps semantic side, review, bottom, and composer surfaces indepen
   assert.ok(harness.elements.has("codex-dream-skin-chrome"));
 });
 
+test("renderer marks only the body app root and moves the marker when the app root changes", async () => {
+  const harness = await createRendererHarness(baseTheme());
+  const state = harness.context.window.__CODEX_DREAM_SKIN_STATE__;
+
+  assert.equal(harness.applicationRoot.classList.contains("dream-skin-app-root"), true);
+  assert.equal(harness.selectionPortal.classList.contains("dream-skin-app-root"), false);
+
+  state.ensure();
+  assert.equal(harness.applicationRoot.classList.contains("dream-skin-app-root"), true);
+  assert.equal(harness.selectionPortal.classList.contains("dream-skin-app-root"), false);
+
+  const nextApplicationRoot = harness.makeElement("div");
+  harness.body.appendChild(nextApplicationRoot);
+  nextApplicationRoot.appendChild(harness.main);
+  state.ensure();
+  assert.equal(harness.applicationRoot.classList.contains("dream-skin-app-root"), false);
+  assert.equal(nextApplicationRoot.classList.contains("dream-skin-app-root"), true);
+  assert.equal(harness.selectionPortal.classList.contains("dream-skin-app-root"), false);
+
+  assert.equal(state.cleanup(), true);
+  assert.equal(nextApplicationRoot.classList.contains("dream-skin-app-root"), false);
+});
+
+test("renderer app-root marker does not self-schedule ensure forever", async () => {
+  const harness = await createRendererHarness(baseTheme(), { observeClassMutations: true });
+  const drained = harness.drainScheduledTimeouts(8);
+
+  assert.ok(drained.executions > 0, "the observer/debounce path must execute at least once");
+  assert.equal(drained.pending, 0, "an unchanged app root must not schedule another ensure");
+});
+
 test("renderer limits panel fallbacks to the diff aside and terminal dock", async () => {
   const harness = await createRendererHarness(baseTheme(), {
     rightPresent: true,
@@ -690,6 +784,76 @@ test("renderer discovers live semantic surfaces without a version-locked region 
   assert.match(renderer, /dream-surface-input/);
   assert.match(renderer, /dream-control-card/);
   assert.match(renderer, /version:\s*"1\.7\.0"/);
+});
+
+test("main surface preserves native selection and attachment overlays", async () => {
+  const css = await fs.readFile(cssPath, "utf8");
+  const mainSurfaceRule = css.match(
+    /html\.codex-dream-skin main\.main-surface,\s*html\.codex-dream-skin \.dream-surface-main\s*\{([^}]*)\}/,
+  );
+
+  assert.ok(mainSurfaceRule, "missing main surface rule");
+  assert.doesNotMatch(mainSurfaceRule[1], /overflow:\s*(?:hidden|clip)/);
+  assert.doesNotMatch(mainSurfaceRule[1], /isolation:\s*isolate/);
+});
+
+test("chrome stays below the app root and native portals", async () => {
+  const css = await fs.readFile(cssPath, "utf8");
+  const relevantRules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, selector]) => [
+      "#codex-dream-skin-chrome",
+      ".dream-skin-app-root",
+      "body > :not(#codex-dream-skin-chrome)",
+      "main.main-surface",
+      ".dream-task",
+      ".dream-task > *",
+    ].some((fragment) => selector.includes(fragment)))
+    .map(([rule]) => rule)
+    .join("\n");
+  const dom = new JSDOM(`<!doctype html>
+    <html class="codex-dream-skin">
+      <head><style>
+        .fixed { position: fixed; }
+        .z-50 { z-index: 50; }
+        ${relevantRules}
+      </style></head>
+      <body>
+        <div id="application-root" class="dream-skin-app-root">
+          <main class="main-surface">
+            <section role="main" class="dream-task"><div id="task-content"></div></section>
+          </main>
+        </div>
+        <div id="selection-portal" class="fixed z-50"></div>
+        <div id="image-overlay" class="fixed z-50"></div>
+        <div id="codex-dream-skin-chrome"></div>
+      </body>
+    </html>`);
+
+  const chrome = dom.window.document.getElementById("codex-dream-skin-chrome");
+  const appRoot = dom.window.document.getElementById("application-root");
+  assert.equal(dom.window.getComputedStyle(chrome).zIndex, "0");
+  assert.equal(dom.window.getComputedStyle(appRoot).position, "relative");
+  assert.equal(dom.window.getComputedStyle(appRoot).zIndex, "1");
+
+  for (const id of ["selection-portal", "image-overlay"]) {
+    const computed = dom.window.getComputedStyle(dom.window.document.getElementById(id));
+    assert.equal(computed.position, "fixed", `${id} position must remain official`);
+    assert.equal(computed.zIndex, "50", `${id} z-index must remain official`);
+  }
+});
+
+test("task content does not create broad stacking ownership", async () => {
+  const css = await fs.readFile(cssPath, "utf8");
+  const bodyChildRules = [...css.matchAll(/([^{}]*body\s*>\s*:not\([^{}]+\))\s*\{([^{}]*)\}/g)];
+  const taskChildRules = [...css.matchAll(/([^{}]*\.dream-task\s*>\s*\*)\s*\{([^{}]*)\}/g)];
+  const taskRule = css.match(/html\.codex-dream-skin\s+\.dream-task\s*\{([^{}]*)\}/);
+  const stackingViolations = [...bodyChildRules, ...taskChildRules]
+    .filter(([, , declarations]) => /(?:^|;)\s*(?:position|z-index)\s*:/.test(declarations))
+    .map(([, selector]) => selector.trim());
+
+  assert.deepEqual(stackingViolations, [], "broad selectors must not own arbitrary child stacking");
+  assert.ok(taskRule, "missing task surface rule");
+  assert.doesNotMatch(taskRule[1], /isolation:\s*isolate/);
 });
 
 test("CSS applies independent region opacity to actual semantic controls", async () => {

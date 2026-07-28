@@ -26,6 +26,10 @@ function Test-DreamSkinVerificationWaitingForRenderer {
     return $true
   }
 
+  if ($VerificationText.Trim() -ceq 'CDP command timed out: Runtime.evaluate') {
+    return $true
+  }
+
   try {
     $verification = $VerificationText | ConvertFrom-Json -ErrorAction Stop
     if ($verification.mode -cne 'verify') { return $false }
@@ -48,6 +52,24 @@ function Test-DreamSkinVerificationWaitingForRenderer {
   }
 
   return $false
+}
+
+function Write-DreamSkinStartResult {
+  param(
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('active', 'starting')]
+    [string]$State,
+
+    [Parameter(Mandatory = $true)]
+    [ValidateRange(1, 65535)]
+    [int]$Port
+  )
+
+  [ordered]@{
+    mode = 'start'
+    state = $State
+    port = $Port
+  } | ConvertTo-Json -Compress | Write-Output
 }
 
 $operationLock = Enter-DreamSkinOperationLock
@@ -343,8 +365,10 @@ try {
 
   if ($rendererPending) {
     Write-Host "Codex Dream Skin watcher is ready on verified loopback port $Port and is waiting for the Codex interface."
+    Write-DreamSkinStartResult -State 'starting' -Port $Port
   } else {
     Write-Host "Codex Dream Skin is active on verified loopback port $Port."
+    Write-DreamSkinStartResult -State 'active' -Port $Port
   }
 } finally {
   if ($null -ne $operationLock) { Exit-DreamSkinOperationLock -Mutex $operationLock }
