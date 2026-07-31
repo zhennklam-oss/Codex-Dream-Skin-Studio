@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Codex Dream Skin Studio",
+  "mainBinaryName": "Codex Dream Skin Studio",
+  "version": "0.2.0",
+  "identifier": "com.aqlteen.codex-dream-skin-studio",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Codex Dream Skin Studio",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 1040,
+        "minHeight": 680,
+        "decorations": false,
+        "resizable": true,
+        "shadow": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$LOCALDATA/CodexDreamSkin/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "AQLTeen",
+    "copyright": "Copyright © 2026 AQLTeen",
+    "category": "Utility",
+    "shortDescription": "Visual theme controller for Codex desktop",
+    "longDescription": "A lightweight visual workbench for managing Codex Dream Skin themes, previews, effects, runtime controls, and restoration.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "resources": ["resources/dream-skin-engine"],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": false,
+        "startMenuFolder": "Codex Dream Skin Studio",
+        "installerHooks": "installer-hooks.nsh"
+      }
+    }
+  }
+}

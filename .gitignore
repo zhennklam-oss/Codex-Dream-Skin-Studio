@@ -1,0 +1,10 @@
+node_modules/
+dist/
+work/
+src-tauri/target/
+src-tauri/gen/schemas/
+*.log
+.DS_Store
+docs/verification/studio-dom.json
+docs/verification/studio-main.png
+docs/verification/runtime-lifecycle-reconciliation.json

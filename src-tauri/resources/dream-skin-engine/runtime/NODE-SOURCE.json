@@ -1,0 +1,10 @@
+{
+  "version": "24.18.0",
+  "platform": "win",
+  "arch": "x64",
+  "archive": "node-v24.18.0-win-x64.zip",
+  "source": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-win-x64.zip",
+  "shasums": "https://nodejs.org/dist/v24.18.0/SHASUMS256.txt",
+  "archiveSha256": "0AE68406B42D7725661DA979B1403EC9926DA205C6770827F33AAC9D8F26E821",
+  "nodeExeSha256": "9A4EB5F1C29C6A2E93852EAD46B999E284A6A5CA8BAB4D4E241D587D025A52DE"
+}

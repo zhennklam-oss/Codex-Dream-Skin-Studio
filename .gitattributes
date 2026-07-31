@@ -1,0 +1,3 @@
+# Engine payload hashes are byte-exact. Preserve its checked-in bytes on every
+# platform so Git archives and clones match ENGINE-SOURCE.json.
+src-tauri/resources/dream-skin-engine/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
