@@ -11,7 +11,7 @@ import { ThemeInspector } from "./ThemeInspector";
 afterEach(cleanup);
 
 const draft: ThemeDocument = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   id: "yingying",
   name: "萦萦",
   image: "art.jpg",
@@ -126,6 +126,19 @@ describe("ThemeInspector", () => {
       expect(screen.getByRole("spinbutton", { name: `${label}数值` })).toBeVisible();
       expect(screen.getByRole("button", { name: `重置${label}` })).toBeVisible();
     }
+
+    await user.click(screen.getByRole("tab", { name: "界面" }));
+    expect(screen.getByRole("heading", { name: "主页卡片" })).toBeVisible();
+    for (const [label, min, max, step] of [
+      ["卡片透明度", "25", "95", "1"],
+      ["卡片圆角", "6", "28", "1"],
+      ["悬停提亮", "100", "125", "1"],
+    ]) {
+      expect(screen.getByRole("slider", { name: label })).toHaveAttribute("min", min);
+      expect(screen.getByRole("slider", { name: label })).toHaveAttribute("max", max);
+      expect(screen.getByRole("slider", { name: label })).toHaveAttribute("step", step);
+      expect(screen.getByRole("button", { name: `重置${label}` })).toBeVisible();
+    }
   });
 
   it("dispatches converted nested patches for every numeric and enum field", async () => {
@@ -161,11 +174,17 @@ describe("ThemeInspector", () => {
     await user.click(screen.getByRole("tab", { name: "界面" }));
     fireEvent.change(screen.getByRole("slider", { name: "界面背景透明度" }), { target: { value: "66" } });
     fireEvent.change(screen.getByRole("slider", { name: "左侧栏透明度" }), { target: { value: "44" } });
+    fireEvent.change(screen.getByRole("slider", { name: "卡片透明度" }), { target: { value: "54" } });
+    fireEvent.change(screen.getByRole("slider", { name: "卡片圆角" }), { target: { value: "24" } });
+    fireEvent.change(screen.getByRole("slider", { name: "悬停提亮" }), { target: { value: "118" } });
     expect(screen.queryByLabelText("水平焦点")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("垂直焦点")).not.toBeInTheDocument();
 
     expect(onUpdateDraft).toHaveBeenCalledWith({ effects: { interfaceOpacity: 0.66 } });
     expect(onUpdateDraft).toHaveBeenCalledWith({ effects: { leftSidebarOpacity: 0.44 } });
+    expect(onUpdateDraft).toHaveBeenCalledWith({ effects: { homeCardOpacity: 0.54 } });
+    expect(onUpdateDraft).toHaveBeenCalledWith({ effects: { homeCardRadius: 24 } });
+    expect(onUpdateDraft).toHaveBeenCalledWith({ effects: { homeCardHoverBrightness: 1.18 } });
   });
 
   it("resets every numeric field to the schema default", async () => {
@@ -207,6 +226,14 @@ describe("ThemeInspector", () => {
       ["右侧栏（审阅面板）透明度", "rightSidebarOpacity", DEFAULT_EFFECTS.rightSidebarOpacity],
       ["底栏（终端面板）透明度", "bottomBarOpacity", DEFAULT_EFFECTS.bottomBarOpacity],
       ["输入区透明度", "inputOpacity", DEFAULT_EFFECTS.inputOpacity],
+    ] as const) {
+      await user.click(screen.getByRole("button", { name: `重置${label}` }));
+      expect(onUpdateDraft).toHaveBeenCalledWith({ effects: { [field]: value } });
+    }
+    for (const [label, field, value] of [
+      ["卡片透明度", "homeCardOpacity", DEFAULT_EFFECTS.homeCardOpacity],
+      ["卡片圆角", "homeCardRadius", DEFAULT_EFFECTS.homeCardRadius],
+      ["悬停提亮", "homeCardHoverBrightness", DEFAULT_EFFECTS.homeCardHoverBrightness],
     ] as const) {
       await user.click(screen.getByRole("button", { name: `重置${label}` }));
       expect(onUpdateDraft).toHaveBeenCalledWith({ effects: { [field]: value } });
@@ -255,7 +282,7 @@ describe("ThemeInspector", () => {
     expect(onUpdateDraft).toHaveBeenCalledWith({ effects: { washColor: "#71988f" } });
   });
 
-  it("shows six explicit interface opacity controls and can synchronize every interface region", async () => {
+  it("keeps six interface opacity controls synchronized without coupling home cards", async () => {
     const user = userEvent.setup();
     const onUpdateDraft = vi.fn();
     renderInspector({ onUpdateDraft });
@@ -272,7 +299,7 @@ describe("ThemeInspector", () => {
     for (const [label] of interfaceControls) {
       expect(screen.getByRole("slider", { name: label })).toBeInTheDocument();
     }
-    expect(screen.getAllByRole("slider")).toHaveLength(interfaceControls.length);
+    expect(screen.getAllByRole("slider")).toHaveLength(interfaceControls.length + 3);
     expect(screen.getByRole("checkbox", { name: "同步调整全部界面区域" })).not.toBeChecked();
 
     fireEvent.change(screen.getByRole("slider", { name: "界面背景透明度" }), { target: { value: "41" } });
@@ -293,6 +320,9 @@ describe("ThemeInspector", () => {
         inputOpacity: 0.67,
       },
     });
+
+    fireEvent.change(screen.getByRole("slider", { name: "卡片透明度" }), { target: { value: "59" } });
+    expect(onUpdateDraft).toHaveBeenLastCalledWith({ effects: { homeCardOpacity: 0.59 } });
   });
 
   it("shows image metadata and stages a validated replacement without applying", async () => {

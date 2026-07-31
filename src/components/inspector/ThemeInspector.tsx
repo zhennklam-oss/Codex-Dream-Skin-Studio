@@ -198,31 +198,39 @@ export function ThemeInspector({
 
   function renderInterfacePage() {
     return (
-      <InspectorSection title="界面" index="E">
-        <PercentRange
-          label="界面背景透明度"
-          value={draft.effects.interfaceOpacity}
-          resetValue={DEFAULT_EFFECTS.interfaceOpacity}
-          disabled={busy}
-          onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("interfaceOpacity", value, synchronizeRegions))}
-        />
-        <label className="region-sync-toggle">
-          <input
-            type="checkbox"
-            aria-label="同步调整全部界面区域"
-            checked={synchronizeRegions}
+      <>
+        <InspectorSection title="界面" index="E">
+          <PercentRange
+            label="界面背景透明度"
+            value={draft.effects.interfaceOpacity}
+            resetValue={DEFAULT_EFFECTS.interfaceOpacity}
             disabled={busy}
-            onChange={(event) => setSynchronizeRegions(event.target.checked)}
+            onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("interfaceOpacity", value, synchronizeRegions))}
           />
-          <span>同步调整全部界面区域</span>
-          <small>{synchronizeRegions ? "任一滑块将同时更新全部区域" : "每个区域保持独立"}</small>
-        </label>
-        <PercentRange label="左侧栏透明度" value={draft.effects.leftSidebarOpacity} resetValue={DEFAULT_EFFECTS.leftSidebarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("leftSidebarOpacity", value, synchronizeRegions))} />
-        <PercentRange label="顶栏透明度" value={draft.effects.topBarOpacity} resetValue={DEFAULT_EFFECTS.topBarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("topBarOpacity", value, synchronizeRegions))} />
-        <PercentRange label="右侧栏（审阅面板）透明度" value={draft.effects.rightSidebarOpacity} resetValue={DEFAULT_EFFECTS.rightSidebarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("rightSidebarOpacity", value, synchronizeRegions))} />
-        <PercentRange label="底栏（终端面板）透明度" value={draft.effects.bottomBarOpacity} resetValue={DEFAULT_EFFECTS.bottomBarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("bottomBarOpacity", value, synchronizeRegions))} />
-        <PercentRange label="输入区透明度" value={draft.effects.inputOpacity} resetValue={DEFAULT_EFFECTS.inputOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("inputOpacity", value, synchronizeRegions))} />
-      </InspectorSection>
+          <label className="region-sync-toggle">
+            <input
+              type="checkbox"
+              aria-label="同步调整全部界面区域"
+              checked={synchronizeRegions}
+              disabled={busy}
+              onChange={(event) => setSynchronizeRegions(event.target.checked)}
+            />
+            <span>同步调整全部界面区域</span>
+            <small>{synchronizeRegions ? "任一滑块将同时更新全部区域" : "每个区域保持独立"}</small>
+          </label>
+          <PercentRange label="左侧栏透明度" value={draft.effects.leftSidebarOpacity} resetValue={DEFAULT_EFFECTS.leftSidebarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("leftSidebarOpacity", value, synchronizeRegions))} />
+          <PercentRange label="顶栏透明度" value={draft.effects.topBarOpacity} resetValue={DEFAULT_EFFECTS.topBarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("topBarOpacity", value, synchronizeRegions))} />
+          <PercentRange label="右侧栏（审阅面板）透明度" value={draft.effects.rightSidebarOpacity} resetValue={DEFAULT_EFFECTS.rightSidebarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("rightSidebarOpacity", value, synchronizeRegions))} />
+          <PercentRange label="底栏（终端面板）透明度" value={draft.effects.bottomBarOpacity} resetValue={DEFAULT_EFFECTS.bottomBarOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("bottomBarOpacity", value, synchronizeRegions))} />
+          <PercentRange label="输入区透明度" value={draft.effects.inputOpacity} resetValue={DEFAULT_EFFECTS.inputOpacity} disabled={busy} onChange={(value) => onUpdateDraft(buildInterfaceOpacityPatch("inputOpacity", value, synchronizeRegions))} />
+        </InspectorSection>
+
+        <InspectorSection title="主页卡片" index="F">
+          <BoundedPercentRange label="卡片透明度" value={draft.effects.homeCardOpacity} min={25} max={95} resetValue={DEFAULT_EFFECTS.homeCardOpacity} disabled={busy} onChange={(homeCardOpacity) => onUpdateDraft({ effects: { homeCardOpacity } })} />
+          <LabeledRange label="卡片圆角" value={draft.effects.homeCardRadius} min={6} max={28} step={1} unit="px" resetValue={DEFAULT_EFFECTS.homeCardRadius} disabled={busy} onChange={(homeCardRadius) => onUpdateDraft({ effects: { homeCardRadius } })} />
+          <BoundedPercentRange label="悬停提亮" value={draft.effects.homeCardHoverBrightness} min={100} max={125} resetValue={DEFAULT_EFFECTS.homeCardHoverBrightness} disabled={busy} onChange={(homeCardHoverBrightness) => onUpdateDraft({ effects: { homeCardHoverBrightness } })} />
+        </InspectorSection>
+      </>
     );
   }
 }
@@ -275,6 +283,10 @@ function PercentRange({ label, value, resetValue, disabled, onChange }: { label:
 
 function ScaledPercentRange({ label, value, min, max, resetValue, disabled, onChange }: { label: string; value: number; min: number; max: number; resetValue: number; disabled: boolean; onChange(value: number): void }) {
   return <LabeledRange label={label} value={Math.round(value * 100)} min={min} max={max} step={5} unit="%" resetValue={Math.round(resetValue * 100)} disabled={disabled} onChange={(next) => onChange(next / 100)} />;
+}
+
+function BoundedPercentRange({ label, value, min, max, resetValue, disabled, onChange }: { label: string; value: number; min: number; max: number; resetValue: number; disabled: boolean; onChange(value: number): void }) {
+  return <LabeledRange label={label} value={Math.round(value * 100)} min={min} max={max} step={1} unit="%" resetValue={Math.round(resetValue * 100)} disabled={disabled} onChange={(next) => onChange(next / 100)} />;
 }
 
 function fileName(path: string): string {

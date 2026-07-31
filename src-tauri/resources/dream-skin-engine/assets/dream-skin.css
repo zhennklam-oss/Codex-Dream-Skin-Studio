@@ -16,6 +16,9 @@
   --dream-right-sidebar-opacity: .78;
   --dream-bottom-bar-opacity: .78;
   --dream-input-opacity: .9;
+  --dream-home-card-opacity: .68;
+  --dream-home-card-radius: 18px;
+  --dream-home-card-hover-brightness: 1.1;
   --dream-tone-mode: original;
   --dream-tone-strength: 1;
   --dream-duotone-shadow: #1C1B22;
@@ -336,37 +339,106 @@ html.codex-dream-skin.dream-tone-wash .dream-task::before {
 }
 
 .dream-home .group\/home-suggestions button {
+  position: relative !important;
+  isolation: isolate !important;
   min-height: 112px !important;
   padding: 16px 14px !important;
+  overflow: hidden !important;
   color: var(--dream-text) !important;
   border: 1px solid var(--dream-line-soft) !important;
-  border-radius: 16px !important;
-  background: var(--dream-surface-raised) !important;
+  border-radius: var(--dream-home-card-radius) !important;
+  background: transparent !important;
   box-shadow: 0 8px 24px color-mix(in oklab, var(--dream-accent) 6%, transparent) !important;
-  transition: transform 180ms cubic-bezier(.22, 1, .36, 1), border-color 180ms cubic-bezier(.22, 1, .36, 1), background-color 180ms cubic-bezier(.22, 1, .36, 1) !important;
+  transition: transform 180ms cubic-bezier(.22, 1, .36, 1), border-color 180ms cubic-bezier(.22, 1, .36, 1), box-shadow 180ms cubic-bezier(.22, 1, .36, 1) !important;
+}
+
+.dream-home .group\/home-suggestions button::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(
+    in oklab,
+    var(--dream-surface-raised) calc(var(--dream-home-card-opacity) * 100%),
+    transparent
+  );
+  filter: brightness(1);
+  content: "";
+  pointer-events: none;
+  transition: filter 180ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.dream-home .group\/home-suggestions button > * {
+  position: relative !important;
+  z-index: 1 !important;
 }
 
 .dream-home .group\/home-suggestions button:hover {
   transform: translateY(-2px) !important;
   border-color: var(--dream-line) !important;
-  background: var(--dream-accent-soft) !important;
+  box-shadow: 0 10px 28px color-mix(in oklab, var(--dream-accent) 10%, transparent) !important;
+}
+
+.dream-home .group\/home-suggestions button:hover::before {
+  filter: brightness(var(--dream-home-card-hover-brightness));
+}
+
+.dream-home .group\/home-suggestions button:focus-visible {
+  outline: 2px solid var(--dream-accent) !important;
+  outline-offset: 2px !important;
+  box-shadow:
+    0 0 0 4px color-mix(in oklab, var(--dream-surface) 72%, transparent),
+    0 0 0 6px var(--dream-accent) !important;
+}
+
+.dream-home .group\/home-suggestions button > span:first-child {
+  display: grid !important;
+  grid-template-rows: 44px auto !important;
+  align-content: start !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
 }
 
 .dream-home .group\/home-suggestions button > span:first-child > span:first-child {
-  width: 38px;
-  height: 38px;
   display: grid !important;
-  place-items: center;
-  border-radius: 12px;
-  color: var(--dream-accent-ink) !important;
-  background: var(--dream-accent) !important;
-  box-shadow: 0 0 0 6px var(--dream-accent-soft);
+  width: 44px !important;
+  height: 44px !important;
+  justify-items: center !important;
+  align-items: center !important;
+  place-items: center !important;
+  justify-content: center !important;
+  align-content: center !important;
+  place-content: center !important;
+  align-self: start !important;
+  color: color-mix(in oklab, var(--dream-text) 72%, var(--dream-accent) 28%) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  line-height: 0 !important;
 }
 
-.dream-home .group\/home-suggestions button svg {
+.dream-home .group\/home-suggestions button > span:first-child > span:first-child :where(span, div) {
+  position: static !important;
+  inset: auto !important;
+  display: grid !important;
+  width: 100% !important;
+  height: 100% !important;
+  place-items: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+}
+
+.dream-home .group\/home-suggestions button > span:first-child > span:first-child svg {
+  display: block !important;
   width: 20px !important;
   height: 20px !important;
+  place-self: center !important;
+  flex: none !important;
+  margin: 0 !important;
   color: currentColor !important;
+  transform: none !important;
 }
 
 html.codex-dream-skin .dream-surface-bottom {
@@ -544,10 +616,10 @@ html.codex-dream-skin.dream-art-wide main.main-surface [role="main"] {
 
 html.codex-dream-skin.dream-art-wide main.main-surface.dream-home-shell
   .dream-home .group\/home-suggestions button {
-  background: color-mix(in oklab, var(--dream-surface-raised) 58%, transparent) !important;
+  background: transparent !important;
   box-shadow: 0 8px 22px color-mix(in oklab, var(--dream-canvas) 18%, transparent),
     inset 0 0 0 1px var(--dream-immersive-line) !important;
-  backdrop-filter: blur(8px) saturate(1.04) !important;
+  backdrop-filter: none !important;
 }
 
 /* Plugins, scheduled tasks and search routes ship opaque sticky wrappers.
@@ -598,9 +670,28 @@ html.codex-dream-skin.dream-art-wide main.main-surface
     padding: 12px 10px !important;
     font-size: 12px !important;
   }
+
+  .dream-home .group\/home-suggestions button > span:first-child {
+    grid-template-rows: 38px auto !important;
+    gap: 9px !important;
+  }
+
+  .dream-home .group\/home-suggestions button > span:first-child > span:first-child {
+    width: 38px !important;
+    height: 38px !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .dream-home .group\/home-suggestions button,
+  .dream-home .group\/home-suggestions button::before {
+    transition: none !important;
+  }
+
+  .dream-home .group\/home-suggestions button:hover {
+    transform: none !important;
+  }
+
   html.codex-dream-skin *,
   html.codex-dream-skin *::before,
   html.codex-dream-skin *::after {

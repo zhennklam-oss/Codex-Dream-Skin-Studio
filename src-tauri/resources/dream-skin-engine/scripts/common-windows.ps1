@@ -909,19 +909,6 @@ function Get-DreamSkinCodexProcesses {
     })
 }
 
-function Wait-DreamSkinCodexExit {
-  param(
-    [Parameter(Mandatory = $true)][object]$Codex,
-    [ValidateRange(0, 60)][int]$TimeoutSeconds = 10
-  )
-  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-  while ($true) {
-    if ((Get-DreamSkinCodexProcesses -Codex $Codex).Count -eq 0) { return $true }
-    if ((Get-Date) -ge $deadline) { return $false }
-    Start-Sleep -Milliseconds 250
-  }
-}
-
 function Stop-DreamSkinCodex {
   param([Parameter(Mandatory = $true)][object]$Codex, [switch]$AllowForce)
   $processes = Get-DreamSkinCodexProcesses -Codex $Codex
@@ -946,9 +933,8 @@ function Stop-DreamSkinCodex {
       Stop-Process -Id $item.ProcessId -Force -ErrorAction SilentlyContinue
     }
   }
-  if (-not (Wait-DreamSkinCodexExit -Codex $Codex -TimeoutSeconds 10)) {
-    throw 'Codex could not be stopped safely.'
-  }
+  Start-Sleep -Milliseconds 500
+  if ((Get-DreamSkinCodexProcesses -Codex $Codex).Count -gt 0) { throw 'Codex could not be stopped safely.' }
 }
 
 function Confirm-DreamSkinRestart {

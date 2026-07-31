@@ -50,11 +50,15 @@ $removedOpacityFields = @(
     'composerOpacity'
 )
 $requiredRegionFields = @('leftSidebarOpacity', 'topBarOpacity', 'rightSidebarOpacity', 'bottomBarOpacity', 'inputOpacity')
+$requiredHomeCardFields = @('homeCardOpacity', 'homeCardRadius', 'homeCardHoverBrightness')
 
-if ($theme.schemaVersion -ne 5) { throw 'Bundled default theme is not schema 5' }
+if ($theme.schemaVersion -ne 6) { throw 'Bundled default theme is not schema 6' }
 if ($effectNames -notcontains 'interfaceOpacity') { throw 'Bundled default theme is missing interfaceOpacity' }
 foreach ($field in $requiredRegionFields) {
     if ($effectNames -notcontains $field) { throw "Bundled default theme is missing region field: $field" }
+}
+foreach ($field in $requiredHomeCardFields) {
+    if ($effectNames -notcontains $field) { throw "Bundled default theme is missing home card field: $field" }
 }
 foreach ($field in $removedOpacityFields) {
     if ($effectNames -contains $field) { throw "Bundled default theme retained removed field: $field" }
@@ -86,6 +90,11 @@ foreach ($name in $forbiddenNames) {
         right = $theme.effects.rightSidebarOpacity
         bottom = $theme.effects.bottomBarOpacity
         input = $theme.effects.inputOpacity
+    }
+    homeCards = [ordered]@{
+        opacity = $theme.effects.homeCardOpacity
+        radius = $theme.effects.homeCardRadius
+        hoverBrightness = $theme.effects.homeCardHoverBrightness
     }
     sourceFileCount = $sourceFiles.Count
     bundleFileCount = $bundleFiles.Count

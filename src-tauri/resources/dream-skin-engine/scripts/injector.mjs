@@ -477,7 +477,7 @@ async function loadTheme(themeDir) {
   const palette = raw.palette && typeof raw.palette === "object" && !Array.isArray(raw.palette)
     ? raw.palette : {};
   const schemaVersion = raw.schemaVersion ?? 1;
-  if (![1, 2, 3, 4, 5].includes(schemaVersion)) {
+  if (![1, 2, 3, 4, 5, 6].includes(schemaVersion)) {
     throw new Error(`unsupported schemaVersion: ${schemaVersion}`);
   }
   const readInterfaceOpacity = (value, name) => {
@@ -518,11 +518,11 @@ async function loadTheme(themeDir) {
       : schemaVersion <= 4 && effects.bottomBarOpacity !== undefined
         ? readInterfaceOpacity(effects.bottomBarOpacity, "effects.bottomBarOpacity")
         : 0.9;
-  const bottomBarOpacity = schemaVersion === 5
+  const bottomBarOpacity = schemaVersion >= 5
     ? regionOpacity("bottomBarOpacity")
     : interfaceOpacity;
   const theme = {
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: normalizedText(raw.id, "id", "custom", 80),
     name: normalizedText(raw.name, "name", "Codex Dream Skin", 120),
     image,
@@ -547,6 +547,9 @@ async function loadTheme(themeDir) {
       rightSidebarOpacity: regionOpacity("rightSidebarOpacity"),
       bottomBarOpacity,
       inputOpacity,
+      homeCardOpacity: normalizedNumber(effects.homeCardOpacity, "effects.homeCardOpacity", 0.25, 0.95, 0.68),
+      homeCardRadius: normalizedNumber(effects.homeCardRadius, "effects.homeCardRadius", 6, 28, 18),
+      homeCardHoverBrightness: normalizedNumber(effects.homeCardHoverBrightness, "effects.homeCardHoverBrightness", 1, 1.25, 1.1),
       toneMode: normalizedChoice(effects.toneMode, "effects.toneMode", THEME_CHOICES.toneMode, "original"),
       toneStrength: normalizedNumber(effects.toneStrength, "effects.toneStrength", 0, 1, 1),
       duotoneShadow: normalizedHexColor(effects.duotoneShadow, "effects.duotoneShadow", "#1C1B22"),

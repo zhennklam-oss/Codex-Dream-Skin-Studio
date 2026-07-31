@@ -48,7 +48,7 @@ Object.defineProperty(window, "ResizeObserver", { configurable: true, value: Tes
 afterEach(cleanup);
 
 const theme: ThemeDocument = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   id: "yingying",
   name: "萦萦",
   image: "art.jpg",
@@ -136,6 +136,9 @@ describe("preview style", () => {
       rightSidebarOpacity: 0.43,
       bottomBarOpacity: 0.54,
       inputOpacity: 0.65,
+      homeCardOpacity: 0.68,
+      homeCardRadius: 18,
+      homeCardHoverBrightness: 1.1,
       artworkVisible: true,
     });
     expect(buildPreviewStyle(theme, "task")).toEqual({
@@ -148,6 +151,9 @@ describe("preview style", () => {
       rightSidebarOpacity: 0.43,
       bottomBarOpacity: 0.54,
       inputOpacity: 0.65,
+      homeCardOpacity: 0.68,
+      homeCardRadius: 18,
+      homeCardHoverBrightness: 1.1,
       artworkVisible: true,
     });
   });
@@ -243,6 +249,59 @@ describe("PreviewCanvas", () => {
     await user.click(screen.getByRole("tab", { name: "任务页" }));
     expect(screen.getByTestId("preview-task-activity")).toBeVisible();
     expect(screen.getByTestId("preview-artwork")).toHaveStyle({ opacity: "0.42" });
+  });
+
+  it("renders four aligned home-card specimens using theme variables", () => {
+    renderPreview({
+      theme: {
+        ...theme,
+        effects: {
+          ...theme.effects,
+          homeCardOpacity: 0.54,
+          homeCardRadius: 24,
+          homeCardHoverBrightness: 1.18,
+        },
+      },
+    });
+
+    const cards = screen.getAllByTestId("preview-home-card");
+    expect(cards).toHaveLength(4);
+    expect(screen.getByTestId("preview-codex-grid")).toHaveStyle({
+      "--preview-home-card-opacity": "0.54",
+      "--preview-home-card-radius": "24px",
+      "--preview-home-card-hover-brightness": "1.18",
+    });
+    expect(cards.some((card) => card.dataset.multiline === "true")).toBe(true);
+    for (const card of cards) {
+      const icon = within(card).getByTestId("preview-home-card-icon");
+      expect(icon).toBeInTheDocument();
+      expect(within(icon).getByTestId("preview-home-card-icon-inner")).toBeInTheDocument();
+    }
+  });
+
+  it("uses a transparent icon alignment box with centered content", () => {
+    const iconRule = appCss.match(/\.preview-home-card__icon\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const innerRule = appCss.match(/\.preview-home-card__icon-inner\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const lightIconRule = appCss.match(
+      /\.preview-canvas\[data-appearance="light"\] \.preview-home-card__icon\s*\{([\s\S]*?)\}/,
+    )?.[1] ?? "";
+
+    expect(iconRule).toMatch(/background:\s*transparent/);
+    expect(iconRule).toMatch(/justify-content:\s*center/);
+    expect(iconRule).toMatch(/align-content:\s*center/);
+    expect(iconRule).toMatch(/place-content:\s*center/);
+    expect(iconRule).not.toMatch(/border-radius|overflow:\s*hidden|box-shadow/);
+    expect(innerRule).toMatch(/place-content:\s*center/);
+    expect(lightIconRule).not.toMatch(/background:/);
+  });
+
+  it("keeps preview hover brightness on the card background layer and honors reduced motion", () => {
+    expect(appCss).toMatch(/\.preview-home-card::before\s*\{/);
+    expect(appCss).toMatch(/\.preview-home-card:hover::before\s*\{[^}]*filter:\s*brightness\(var\(--preview-home-card-hover-brightness\)\)/s);
+    expect(appCss).toMatch(/\.preview-home-card:focus-visible\s*\{/);
+    expect(appCss).toMatch(/prefers-reduced-motion:\s*reduce/);
+    const cardRule = appCss.match(/\.preview-home-card\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    expect(cardRule).not.toMatch(/filter:\s*brightness/);
   });
 
   it("renders independent right, bottom, and composer surfaces in one normal-flow grid", () => {

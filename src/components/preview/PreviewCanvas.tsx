@@ -79,6 +79,9 @@ export function PreviewCanvas({ theme, imageUrl, imageMetadata, onFocusChange, o
     "--preview-right-opacity": String(style.rightSidebarOpacity),
     "--preview-bottom-opacity": String(style.bottomBarOpacity),
     "--preview-input-opacity": String(style.inputOpacity),
+    "--preview-home-card-opacity": String(style.homeCardOpacity),
+    "--preview-home-card-radius": `${style.homeCardRadius}px`,
+    "--preview-home-card-hover-brightness": String(style.homeCardHoverBrightness),
   } as CSSProperties;
 
   useLayoutEffect(() => {
@@ -309,15 +312,42 @@ export function PreviewCanvas({ theme, imageUrl, imageMetadata, onFocusChange, o
   );
 }
 
+const HOME_SUGGESTIONS = [
+  ["⌘", "解释这个代码库", false],
+  ["↗", "检查最近的更改", false],
+  ["◇", "规划下一项工作", false],
+  ["＋", "为选中的代码提出改进建议", true],
+] as const;
+
 function HomeSimulation() {
   return (
     <section className="preview-home" aria-label="模拟 Codex 主页">
       <p>CODEX DESKTOP</p>
       <h3>开始一个任务</h3>
       <div className="preview-suggestions">
-        <span>解释这个代码库</span>
-        <span>检查最近的更改</span>
-        <span>规划下一项工作</span>
+        {HOME_SUGGESTIONS.map(([icon, label, multiline]) => (
+          <button
+            key={label}
+            type="button"
+            className="preview-home-card"
+            data-testid="preview-home-card"
+            data-multiline={multiline}
+          >
+            <span
+              className="preview-home-card__icon"
+              data-testid="preview-home-card-icon"
+              aria-hidden="true"
+            >
+              <span
+                className="preview-home-card__icon-inner"
+                data-testid="preview-home-card-icon-inner"
+              >
+                {icon}
+              </span>
+            </span>
+            <span className="preview-home-card__label">{label}</span>
+          </button>
+        ))}
       </div>
     </section>
   );

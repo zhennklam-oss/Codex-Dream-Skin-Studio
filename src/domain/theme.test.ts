@@ -14,9 +14,9 @@ describe("normalizeTheme", () => {
     [{ sidebarOpacity: 0.31, composerOpacity: 0.47 }, 0.39, [0.31, 0.39, 0.39, 0.39], 0.47],
     [{ composerOpacity: 0.33339 }, 0.3334, [0.3334, 0.3334, 0.3334, 0.3334], 0.33339],
     [{}, 0.78, [0.78, 0.78, 0.78, 0.78], 0.9],
-  ])("migrates legacy opacity fields into schema five regions", (effects, expected, regions, inputOpacity) => {
+  ])("migrates legacy opacity fields into schema six regions", (effects, expected, regions, inputOpacity) => {
     const theme = normalizeTheme({ schemaVersion: 2, id: "legacy", name: "Legacy", image: "art.jpg", effects });
-    expect(theme.schemaVersion).toBe(5);
+    expect(theme.schemaVersion).toBe(6);
     expect(theme.effects.interfaceOpacity).toBe(expected);
     expect([
       theme.effects.leftSidebarOpacity,
@@ -45,7 +45,7 @@ describe("normalizeTheme", () => {
       },
     });
 
-    expect(theme.schemaVersion).toBe(5);
+    expect(theme.schemaVersion).toBe(6);
     expect(theme.effects.inputOpacity).toBe(0.27);
     expect(theme.effects.bottomBarOpacity).toBe(0.61);
   });
@@ -65,6 +65,62 @@ describe("normalizeTheme", () => {
 
     expect(theme.effects.bottomBarOpacity).toBe(0.42);
     expect(theme.effects.inputOpacity).toBe(0.83);
+  });
+
+  it("migrates schema five home cards to schema six defaults", () => {
+    const theme = normalizeTheme({
+      schemaVersion: 5,
+      id: "schema-five",
+      name: "Schema Five",
+      image: "art.jpg",
+      effects: { interfaceOpacity: 0.61, bottomBarOpacity: 0.42, inputOpacity: 0.83 },
+    });
+
+    expect(theme.schemaVersion).toBe(6);
+    expect(theme.effects).toMatchObject({
+      bottomBarOpacity: 0.42,
+      inputOpacity: 0.83,
+      homeCardOpacity: 0.68,
+      homeCardRadius: 18,
+      homeCardHoverBrightness: 1.1,
+    });
+  });
+
+  it("preserves schema six home card settings", () => {
+    const theme = normalizeTheme({
+      schemaVersion: 6,
+      id: "custom-cards",
+      name: "Custom Cards",
+      image: "art.jpg",
+      effects: {
+        homeCardOpacity: 0.54,
+        homeCardRadius: 24,
+        homeCardHoverBrightness: 1.18,
+      },
+    });
+
+    expect(theme.effects).toMatchObject({
+      homeCardOpacity: 0.54,
+      homeCardRadius: 24,
+      homeCardHoverBrightness: 1.18,
+    });
+  });
+
+  it.each([
+    ["homeCardOpacity", 0.24],
+    ["homeCardOpacity", 0.96],
+    ["homeCardRadius", 5],
+    ["homeCardRadius", 29],
+    ["homeCardHoverBrightness", 0.99],
+    ["homeCardHoverBrightness", 1.26],
+  ] as const)("rejects invalid %s", (field, value) => {
+    expect(() => normalizeTheme({
+      schemaVersion: 6,
+      id: "invalid-card",
+      name: "Invalid Card",
+      image: "art.jpg",
+      effects: { ...DEFAULT_EFFECTS, [field]: value },
+    })).toThrow(new RegExp(field));
   });
 
   it("uses composerOpacity as legacy input opacity", () => {
@@ -148,7 +204,7 @@ describe("normalizeTheme", () => {
       quote: "KEEP ME",
     });
 
-    expect(theme.schemaVersion).toBe(5);
+    expect(theme.schemaVersion).toBe(6);
     expect(theme.art).toEqual({ ...DEFAULT_ART, focusX: 0.4, focusY: 0.6, safeArea: "left", taskMode: "ambient" });
     expect(theme.effects).toEqual(DEFAULT_EFFECTS);
     expect(theme.extra.quote).toBe("KEEP ME");
@@ -163,7 +219,7 @@ describe("normalizeTheme", () => {
       art: { focusX: 0.5, focusY: 0.46, safeArea: "auto", taskMode: "auto" },
     });
 
-    expect(theme.schemaVersion).toBe(5);
+    expect(theme.schemaVersion).toBe(6);
     expect(theme.art.scale).toBe(1);
   });
 
@@ -210,7 +266,7 @@ describe("normalizeTheme", () => {
       effects: DEFAULT_EFFECTS,
     };
 
-    expect(() => normalizeTheme({ ...base, schemaVersion: 6 })).toThrow(/schemaVersion/);
+    expect(() => normalizeTheme({ ...base, schemaVersion: 7 })).toThrow(/schemaVersion/);
     expect(() => normalizeTheme({ ...base, appearance: "sepia" })).toThrow(/appearance/);
     expect(() => normalizeTheme({ ...base, art: { ...DEFAULT_ART, safeArea: "top" } })).toThrow(/safeArea/);
     expect(() => normalizeTheme({ ...base, art: { ...DEFAULT_ART, taskMode: "full" } })).toThrow(/taskMode/);
@@ -222,7 +278,7 @@ describe("normalizeTheme", () => {
 
 describe("validateTheme", () => {
   const validTheme = (): ThemeDocument => normalizeTheme({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: "id",
     name: "Name",
     image: "art.jpg",
@@ -247,6 +303,9 @@ describe("validateTheme", () => {
       rightSidebarOpacity: 0.5,
       bottomBarOpacity: 1,
       inputOpacity: 0,
+      homeCardOpacity: 0.25,
+      homeCardRadius: 28,
+      homeCardHoverBrightness: 1.25,
       toneMode: "wash",
       toneStrength: 0,
       duotoneShadow: "#000000",

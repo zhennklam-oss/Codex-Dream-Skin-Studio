@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-const CURRENT_SCHEMA_VERSION: u8 = 5;
+const CURRENT_SCHEMA_VERSION: u8 = 6;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -86,6 +86,9 @@ pub struct EffectSettings {
     pub right_sidebar_opacity: f64,
     pub bottom_bar_opacity: f64,
     pub input_opacity: f64,
+    pub home_card_opacity: f64,
+    pub home_card_radius: f64,
+    pub home_card_hover_brightness: f64,
     pub tone_mode: ToneMode,
     pub tone_strength: f64,
     pub duotone_shadow: String,
@@ -108,6 +111,9 @@ impl Default for EffectSettings {
             right_sidebar_opacity: default_interface_opacity(),
             bottom_bar_opacity: default_interface_opacity(),
             input_opacity: default_input_opacity(),
+            home_card_opacity: default_home_card_opacity(),
+            home_card_radius: default_home_card_radius(),
+            home_card_hover_brightness: default_home_card_hover_brightness(),
             tone_mode: ToneMode::Original,
             tone_strength: 1.0,
             duotone_shadow: default_duotone_shadow(),
@@ -139,6 +145,9 @@ struct EffectSettingsWire {
     right_sidebar_opacity: Option<f64>,
     bottom_bar_opacity: Option<f64>,
     input_opacity: Option<f64>,
+    home_card_opacity: Option<f64>,
+    home_card_radius: Option<f64>,
+    home_card_hover_brightness: Option<f64>,
 }
 
 impl<'de> Deserialize<'de> for EffectSettings {
@@ -172,6 +181,15 @@ impl<'de> Deserialize<'de> for EffectSettings {
             right_sidebar_opacity,
             bottom_bar_opacity,
             input_opacity,
+            home_card_opacity: wire
+                .home_card_opacity
+                .unwrap_or_else(default_home_card_opacity),
+            home_card_radius: wire
+                .home_card_radius
+                .unwrap_or_else(default_home_card_radius),
+            home_card_hover_brightness: wire
+                .home_card_hover_brightness
+                .unwrap_or_else(default_home_card_hover_brightness),
             tone_mode: wire.tone_mode.unwrap_or_default(),
             tone_strength: wire.tone_strength.unwrap_or(1.0),
             duotone_shadow: wire.duotone_shadow.unwrap_or_else(default_duotone_shadow),
@@ -310,6 +328,24 @@ impl ThemeDocument {
             1.0,
         )?;
         validate_range("effects.inputOpacity", self.effects.input_opacity, 0.0, 1.0)?;
+        validate_range(
+            "effects.homeCardOpacity",
+            self.effects.home_card_opacity,
+            0.25,
+            0.95,
+        )?;
+        validate_range(
+            "effects.homeCardRadius",
+            self.effects.home_card_radius,
+            6.0,
+            28.0,
+        )?;
+        validate_range(
+            "effects.homeCardHoverBrightness",
+            self.effects.home_card_hover_brightness,
+            1.0,
+            1.25,
+        )?;
         validate_range("effects.toneStrength", self.effects.tone_strength, 0.0, 1.0)?;
         validate_hex_color("effects.duotoneShadow", &self.effects.duotone_shadow)?;
         validate_hex_color("effects.duotoneHighlight", &self.effects.duotone_highlight)?;
@@ -458,6 +494,15 @@ const fn default_interface_opacity() -> f64 {
 const fn default_input_opacity() -> f64 {
     0.9
 }
+const fn default_home_card_opacity() -> f64 {
+    0.68
+}
+const fn default_home_card_radius() -> f64 {
+    18.0
+}
+const fn default_home_card_hover_brightness() -> f64 {
+    1.1
+}
 fn default_duotone_shadow() -> String {
     "#1C1B22".to_owned()
 }
@@ -483,7 +528,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(theme.schema_version, 5);
+        assert_eq!(theme.schema_version, 6);
         assert_eq!(theme.art.scale, 1.0);
         assert_eq!(theme.effects, EffectSettings::default());
     }
@@ -523,7 +568,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(theme.schema_version, 5);
+        assert_eq!(theme.schema_version, 6);
         assert_eq!(theme.effects.interface_opacity, 0.3);
         assert_eq!(theme.effects.left_sidebar_opacity, 0.2);
         assert_eq!(theme.effects.top_bar_opacity, 0.4);
@@ -542,7 +587,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(theme.schema_version, 5);
+        assert_eq!(theme.schema_version, 6);
         assert_eq!(theme.effects.input_opacity, 0.27);
         assert_eq!(theme.effects.bottom_bar_opacity, 0.61);
     }
@@ -562,6 +607,66 @@ mod tests {
     }
 
     #[test]
+    fn migrates_schema_five_home_cards_to_schema_six_defaults() {
+        let theme = ThemeDocument::from_json(
+            r#"{
+              "schemaVersion":5,"id":"legacy","name":"Legacy","image":"art.jpg",
+              "effects":{"interfaceOpacity":0.61,"bottomBarOpacity":0.42,"inputOpacity":0.83}
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(theme.schema_version, 6);
+        assert_eq!(theme.effects.bottom_bar_opacity, 0.42);
+        assert_eq!(theme.effects.input_opacity, 0.83);
+        assert_eq!(theme.effects.home_card_opacity, 0.68);
+        assert_eq!(theme.effects.home_card_radius, 18.0);
+        assert_eq!(theme.effects.home_card_hover_brightness, 1.1);
+    }
+
+    #[test]
+    fn preserves_schema_six_home_card_values() {
+        let theme = ThemeDocument::from_json(
+            r#"{
+              "schemaVersion":6,"id":"custom","name":"Custom","image":"art.jpg",
+              "effects":{"homeCardOpacity":0.54,"homeCardRadius":24,"homeCardHoverBrightness":1.18}
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(theme.effects.home_card_opacity, 0.54);
+        assert_eq!(theme.effects.home_card_radius, 24.0);
+        assert_eq!(theme.effects.home_card_hover_brightness, 1.18);
+    }
+
+    #[test]
+    fn rejects_out_of_range_home_card_values() {
+        for (field, value) in [
+            ("homeCardOpacity", 0.24),
+            ("homeCardOpacity", 0.96),
+            ("homeCardRadius", 5.0),
+            ("homeCardRadius", 29.0),
+            ("homeCardHoverBrightness", 0.99),
+            ("homeCardHoverBrightness", 1.26),
+        ] {
+            let mut effects = serde_json::Map::new();
+            effects.insert(field.to_owned(), json!(value));
+            let payload = json!({
+                "schemaVersion": 6,
+                "id": "invalid-card",
+                "name": "Invalid Card",
+                "image": "art.jpg",
+                "effects": effects,
+            });
+            let error = ThemeDocument::from_json(&payload.to_string()).unwrap_err();
+            assert!(
+                error.contains(field),
+                "unexpected error for {field}: {error}"
+            );
+        }
+    }
+
+    #[test]
     fn serializes_unified_and_independent_region_opacity() {
         let theme = ThemeDocument::from_json(
             r#"{
@@ -572,7 +677,7 @@ mod tests {
         .unwrap();
 
         let serialized = serde_json::to_value(theme).unwrap();
-        assert_eq!(serialized["schemaVersion"], 5);
+        assert_eq!(serialized["schemaVersion"], 6);
         assert_eq!(serialized["effects"]["interfaceOpacity"], 0.45);
         assert_eq!(serialized["effects"]["leftSidebarOpacity"], 0.2);
         assert_eq!(serialized["effects"]["topBarOpacity"], 0.45);
@@ -623,7 +728,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(theme.schema_version, 5);
+        assert_eq!(theme.schema_version, 6);
         assert_eq!(theme.art.scale, 1.0);
     }
 
@@ -661,10 +766,10 @@ mod tests {
     }
 
     #[test]
-    fn default_theme_uses_schema_five_defaults() {
+    fn default_theme_uses_schema_six_defaults() {
         let theme = ThemeDocument::default_for("id", "name", "art.jpg");
 
-        assert_eq!(theme.schema_version, 5);
+        assert_eq!(theme.schema_version, 6);
         assert_eq!(theme.appearance, Appearance::Auto);
         assert_eq!(theme.art, ArtSettings::default());
         assert_eq!(theme.effects, EffectSettings::default());
@@ -675,12 +780,12 @@ mod tests {
     #[test]
     fn rejects_unsupported_schema_versions_and_invalid_enums() {
         let unsupported = ThemeDocument::from_json(
-            r#"{"schemaVersion":6,"id":"a","name":"A","image":"a.jpg","appearance":"auto","art":{}}"#,
+            r#"{"schemaVersion":7,"id":"a","name":"A","image":"a.jpg","appearance":"auto","art":{}}"#,
         );
         assert!(unsupported.is_err());
 
         let invalid_enum = ThemeDocument::from_json(
-            r#"{"schemaVersion":5,"id":"a","name":"A","image":"a.jpg","appearance":"sepia","art":{}}"#,
+            r#"{"schemaVersion":6,"id":"a","name":"A","image":"a.jpg","appearance":"sepia","art":{}}"#,
         );
         assert!(invalid_enum.is_err());
     }

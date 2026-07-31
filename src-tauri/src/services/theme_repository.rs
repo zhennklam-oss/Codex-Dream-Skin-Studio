@@ -522,12 +522,15 @@ mod tests {
         for (index, root) in [&managed, &active].into_iter().enumerate() {
             let value: serde_json::Value =
                 serde_json::from_slice(&fs::read(root.join("theme.json")).unwrap()).unwrap();
-            assert_eq!(value["schemaVersion"], 5);
+            assert_eq!(value["schemaVersion"], 6);
             assert_eq!(value["effects"]["interfaceOpacity"], 0.3);
             assert_eq!(value["effects"]["leftSidebarOpacity"], 0.2);
             assert_eq!(value["effects"]["topBarOpacity"], 0.4);
             assert_eq!(value["effects"]["bottomBarOpacity"], 0.3);
             assert_eq!(value["effects"]["inputOpacity"], 0.9);
+            assert_eq!(value["effects"]["homeCardOpacity"], 0.68);
+            assert_eq!(value["effects"]["homeCardRadius"], 18.0);
+            assert_eq!(value["effects"]["homeCardHoverBrightness"], 1.1);
             assert_eq!(value["quote"], "KEEP");
             assert_eq!(
                 fs::read(root.join("art.jpg")).unwrap(),
@@ -579,7 +582,7 @@ mod tests {
             serde_json::from_slice(&fs::read(direct.join("theme.json")).unwrap()).unwrap();
         let nested_value: serde_json::Value =
             serde_json::from_slice(&fs::read(nested.join("theme.json")).unwrap()).unwrap();
-        assert_eq!(direct_value["schemaVersion"], 5);
+        assert_eq!(direct_value["schemaVersion"], 6);
         assert_eq!(direct_value["effects"]["bottomBarOpacity"], 0.3);
         assert_eq!(direct_value["effects"]["inputOpacity"], 0.4);
         assert_eq!(nested_value["schemaVersion"], 2);
@@ -780,11 +783,12 @@ mod tests {
         let repository = ThemeRepository::new(copied.path().to_path_buf()).unwrap();
         let detail = repository.read("20260718-102005-ffc6525c").unwrap();
         assert_eq!(detail.theme.name, "萦萦");
-        assert_eq!(detail.theme.schema_version, 5);
+        assert_eq!(detail.theme.schema_version, 6);
         let copied_json: serde_json::Value =
             serde_json::from_slice(&fs::read(destination.join("theme.json")).unwrap()).unwrap();
-        assert_eq!(copied_json["schemaVersion"], 5);
+        assert_eq!(copied_json["schemaVersion"], 6);
         assert!(copied_json["effects"]["inputOpacity"].is_number());
+        assert_eq!(copied_json["effects"]["homeCardOpacity"], 0.68);
         assert_eq!(
             fs::read(source_theme.join("theme.json")).unwrap(),
             source_json_before

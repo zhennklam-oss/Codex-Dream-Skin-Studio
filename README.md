@@ -10,14 +10,15 @@
 
 Codex Dream Skin Studio 是一个面向 Windows 的 Codex 可视化主题控制器。它把经过验证的 Dream Skin 注入引擎封装进 Tauri 2 + React 桌面应用，让用户通过主题库、图片画布和实时预览管理 Codex 外观，而不需要手动运行 PowerShell 或 Node.js 脚本。
 
-当前版本为 `0.2.3`，内置 `Engine 1.7.0`，使用 `Theme schema 5`。
+当前版本为 `0.2.4`，内置 `Engine 1.7.0`，使用 `Theme schema 6`。
 
-### 0.2.3 更新内容
+### 0.2.4 更新内容
 
-- 修复在 Codex 对话中选中文字后，“在侧边栏提问”提示框不显示的问题。
-- 修复点击对话中已上传图片后无法正常打开预览的问题。
-- 修复皮肤绘制层覆盖主界面导致侧栏、输入框和内容区区分度消失的问题，同时保持原生浮层的正确层级。
-- 修复皮肤已经启动成功，却因重复验证超时而显示启动失败的问题；现在仅在状态文件、端口和 watcher 心跳一致时接受结构化启动终态。
+- 保留在 Codex 对话中选中文字后的“在侧边栏提问”提示框，以及已上传图片的正常查看功能。
+- Studio 新增首页卡片透明度、圆角和悬停亮度参数，并将设置保存到 Theme schema 6。
+- 首页四张卡片使用更轻盈的主题融合表面，降低卡片与复杂背景之间的突兀感。
+- 移除卡片内部图标的有色背景与外环，保留不可见的 `44×44px` 对齐区域，并将 `20×20px` 图标精确居中。
+- 使用经过验证的稳定启动链路，同时保留原生选择浮层、图片预览和其他 Codex 门户层级。
 
 ### 0.2.1 更新内容
 
@@ -45,6 +46,7 @@ Codex Dream Skin Studio 是一个面向 Windows 的 Codex 可视化主题控制�
 - 特殊色调：黑白、双色调和水洗色。
 - 本地预览：在应用内即时查看图片位置和效果，点击“应用”后再同步到 Codex。
 - 界面设置：可切换支持中英文显示的字体预设。
+- 首页卡片：可调整透明度、圆角与悬停亮度，并使用随主题融合的卡片表面和透明居中图标。
 - 运行控制：启动、应用、暂停、恢复和恢复官方外观。
 - 托盘控制：关闭窗口时隐藏到系统托盘；“彻底退出”是单独操作。
 - 启动设置：可分别控制登录后启动应用，以及应用启动后自动启动皮肤。
@@ -58,7 +60,7 @@ Codex Dream Skin Studio 是一个面向 Windows 的 Codex 可视化主题控制�
 
 ### 安装
 
-从 GitHub Releases 下载并运行 `Codex Dream Skin Studio_0.2.3_x64-setup.exe`。标准安装会创建开始菜单和桌面快捷方式，并注册卸载入口。
+从 GitHub Releases 下载并运行 `Codex Dream Skin Studio_0.2.4_x64-setup.exe`。标准安装会创建开始菜单和桌面快捷方式，并注册卸载入口。
 
 首次运行时，应用会验证并同步随安装包提供的引擎。用户不需要保留原始 Codex-Dream-Skin 项目目录，也不需要另外安装 Node.js。
 
@@ -108,7 +110,7 @@ npm run tauri build
 Cargo/Tauri 输出保存在仓库内受忽略的构建目录中。生成的 Windows 安装包路径为：
 
 ```text
-src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.2.3_x64-setup.exe
+src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.2.4_x64-setup.exe
 ```
 
 ### 测试
@@ -155,14 +157,15 @@ Codex 渲染器准备就绪可能需要一些时间。先等待状态自动校�
 
 Codex Dream Skin Studio is a visual theme controller for Codex on Windows. It packages the verified Dream Skin injection engine in a Tauri 2 + React desktop app, so themes, image composition, and live preview can be managed without manually running PowerShell or Node.js scripts.
 
-The current release is `0.2.3`, with `Engine 1.7.0` and `Theme schema 5`.
+The current release is `0.2.4`, with `Engine 1.7.0` and `Theme schema 6`.
 
-### What's new in 0.2.3
+### What's new in 0.2.4
 
-- Fixed the missing “Ask in sidebar” prompt after selecting text in a Codex conversation.
-- Fixed uploaded conversation images not opening in the image preview when clicked.
-- Fixed the skin chrome painting above the app root and washing out visual separation between the sidebar, composer, and content surfaces, while preserving native overlay stacking.
-- Fixed successful skin startup being reported as failed after a redundant verification timeout; structured startup results are now accepted only when the state file, port, and watcher heartbeat agree.
+- Preserves the “Ask in sidebar” prompt after selecting conversation text and restores normal viewing of uploaded images.
+- Adds Studio controls for home-card opacity, corner radius, and hover brightness, stored in Theme schema 6.
+- Blends the four home cards into the active theme with lighter, less intrusive surfaces.
+- Removes colored icon tiles and rings while retaining an invisible `44×44px` alignment box with a precisely centered `20×20px` icon.
+- Uses the verified stable startup path while preserving native selection overlays, image previews, and other Codex portal layers.
 
 ### What's new in 0.2.1
 
@@ -190,6 +193,7 @@ The current release is `0.2.3`, with `Engine 1.7.0` and `Theme schema 5`.
 - Special tones: black-and-white, duotone, and wash tone.
 - Local preview: see image placement and effects immediately, then use Apply to synchronize them to Codex.
 - Interface settings: choose font presets that support both Chinese and English.
+- Home cards: adjust opacity, corner radius, and hover brightness with theme-blended surfaces and transparent centered icons.
 - Runtime controls: start, apply, pause, resume, and restore the official appearance.
 - Tray controls: closing the window hides the app to the system tray; explicit Quit is a separate action.
 - Startup switches: control launch at sign-in and automatic skin startup independently.
@@ -203,7 +207,7 @@ The current release is `0.2.3`, with `Engine 1.7.0` and `Theme schema 5`.
 
 ### Installation
 
-Download `Codex Dream Skin Studio_0.2.3_x64-setup.exe` from GitHub Releases and run it. The standard installer creates Start menu and desktop shortcuts and registers an uninstall entry.
+Download `Codex Dream Skin Studio_0.2.4_x64-setup.exe` from GitHub Releases and run it. The standard installer creates Start menu and desktop shortcuts and registers an uninstall entry.
 
 On first launch, the app verifies and synchronizes the bundled engine. Users do not need to keep the original Codex-Dream-Skin project directory or install Node.js separately.
 
@@ -251,7 +255,7 @@ npm run tauri build
 Cargo/Tauri output stays in the ignored repository-local build directory. The generated Windows installer is located at:
 
 ```text
-src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.2.3_x64-setup.exe
+src-tauri\target\release\bundle\nsis\Codex Dream Skin Studio_0.2.4_x64-setup.exe
 ```
 
 ### Tests

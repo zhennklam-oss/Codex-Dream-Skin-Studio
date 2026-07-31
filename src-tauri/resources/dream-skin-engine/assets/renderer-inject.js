@@ -45,6 +45,9 @@
     "--dream-right-sidebar-opacity",
     "--dream-bottom-bar-opacity",
     "--dream-input-opacity",
+    "--dream-home-card-opacity",
+    "--dream-home-card-radius",
+    "--dream-home-card-hover-brightness",
     "--dream-tone-mode",
     "--dream-tone-strength",
     "--dream-duotone-shadow",
@@ -114,7 +117,10 @@
 
   const normalizeConfig = (value) => {
     const config = value && typeof value === "object" ? value : {};
-    const schemaVersion = config.schemaVersion ?? 5;
+    const requestedSchemaVersion = Number(config.schemaVersion ?? 1);
+    const schemaVersion = [1, 2, 3, 4, 5, 6].includes(requestedSchemaVersion)
+      ? requestedSchemaVersion
+      : 1;
     const art = config.art && typeof config.art === "object" ? config.art : {};
     const effects = config.effects && typeof config.effects === "object" ? config.effects : {};
     const hasNumber = (candidate) =>
@@ -140,6 +146,10 @@
       if (!hasNumber(candidate)) return fallback;
       return clamp(candidate, minimum, maximum);
     };
+    const inRangeOr = (candidate, minimum, maximum, fallback) => {
+      if (typeof candidate !== "number" || !Number.isFinite(candidate)) return fallback;
+      return candidate >= minimum && candidate <= maximum ? candidate : fallback;
+    };
     const toneMode = ["original", "grayscale", "duotone", "wash"].includes(effects.toneMode)
       ? effects.toneMode
       : "original";
@@ -159,7 +169,7 @@
         : schemaVersion <= 4 && effects.bottomBarOpacity !== undefined
           ? bounded(effects.bottomBarOpacity, 0, 1, .9)
           : .9;
-    const bottomBarOpacity = schemaVersion === 5
+    const bottomBarOpacity = schemaVersion >= 5
       ? regionOpacity("bottomBarOpacity")
       : interfaceOpacity;
     return {
@@ -182,6 +192,9 @@
         rightSidebarOpacity: regionOpacity("rightSidebarOpacity"),
         bottomBarOpacity,
         inputOpacity,
+        homeCardOpacity: inRangeOr(effects.homeCardOpacity, .25, .95, .68),
+        homeCardRadius: inRangeOr(effects.homeCardRadius, 6, 28, 18),
+        homeCardHoverBrightness: inRangeOr(effects.homeCardHoverBrightness, 1, 1.25, 1.1),
         toneMode,
         toneStrength: bounded(effects.toneStrength, 0, 1, 1),
         duotoneShadow: hexColor(effects.duotoneShadow, "#1C1B22"),
@@ -423,6 +436,9 @@
     root.style.setProperty("--dream-right-sidebar-opacity", String(config.effects.rightSidebarOpacity));
     root.style.setProperty("--dream-bottom-bar-opacity", String(config.effects.bottomBarOpacity));
     root.style.setProperty("--dream-input-opacity", String(config.effects.inputOpacity));
+    root.style.setProperty("--dream-home-card-opacity", String(config.effects.homeCardOpacity));
+    root.style.setProperty("--dream-home-card-radius", `${config.effects.homeCardRadius}px`);
+    root.style.setProperty("--dream-home-card-hover-brightness", String(config.effects.homeCardHoverBrightness));
     root.classList.toggle("dream-input-custom", Math.abs(config.effects.inputOpacity - .9) > .0001);
     root.style.setProperty("--dream-tone-mode", config.effects.toneMode);
     root.style.setProperty("--dream-tone-strength", String(config.effects.toneStrength));

@@ -33,6 +33,9 @@ const DEFAULT_EFFECTS = {
   rightSidebarOpacity: 0.78,
   bottomBarOpacity: 0.78,
   inputOpacity: 0.9,
+  homeCardOpacity: 0.68,
+  homeCardRadius: 18,
+  homeCardHoverBrightness: 1.1,
   toneMode: "original",
   toneStrength: 1,
   duotoneShadow: "#1C1B22",
@@ -50,8 +53,11 @@ test("bundled default uses the redistributable Dream Portal artwork", async () =
   assert.equal(theme.id, "preset-dream-portal");
   assert.equal(theme.name, "梦境门户");
   assert.equal(theme.image, "portal-hero.png");
-  assert.equal(theme.schemaVersion, 5);
+  assert.equal(theme.schemaVersion, 6);
   assert.equal(theme.effects.inputOpacity, 0.9);
+  assert.equal(theme.effects.homeCardOpacity, 0.68);
+  assert.equal(theme.effects.homeCardRadius, 18);
+  assert.equal(theme.effects.homeCardHoverBrightness, 1.1);
   assert.equal(
     createHash("sha256").update(image).digest("hex"),
     "31bde93bb02d6723e0b6aa0ead675577604120acb0a6799163dd37f5cdd0a08e",
@@ -164,7 +170,7 @@ function baseTheme(overrides = {}) {
   };
 }
 
-test("schema 1 payload receives schema 5 scale and effect defaults", async () => {
+test("schema 1 payload receives schema 6 scale and effect defaults", async () => {
   const theme = baseTheme({ schemaVersion: 1 });
   delete theme.effects;
   const result = await withTheme(theme, checkPayload);
@@ -172,7 +178,7 @@ test("schema 1 payload receives schema 5 scale and effect defaults", async () =>
   assert.equal(result.code, 0, result.stderr);
   const output = JSON.parse(result.stdout);
   assert.equal(output.version, "1.7.0");
-  assert.equal(output.schemaVersion, 5);
+  assert.equal(output.schemaVersion, 6);
   assert.equal(output.art.scale, 1);
   assert.deepEqual(output.effects, DEFAULT_EFFECTS);
   assert.equal(output.unresolvedTemplateTokens, false);
@@ -192,7 +198,7 @@ test("schema 2 payload gives present region values precedence and rounds their m
 
   assert.equal(result.code, 0, result.stderr);
   const output = JSON.parse(result.stdout);
-  assert.equal(output.schemaVersion, 5);
+  assert.equal(output.schemaVersion, 6);
   assert.equal(output.effects.interfaceOpacity, 0.4);
   assert.equal(output.effects.leftSidebarOpacity, 0.2);
   assert.equal(output.effects.topBarOpacity, 0.4);
@@ -245,9 +251,10 @@ test("schema 4 payload migrates composer-backed bottom opacity", async () => {
 
   assert.equal(result.code, 0, result.stderr);
   const output = JSON.parse(result.stdout);
-  assert.equal(output.schemaVersion, 5);
+  assert.equal(output.schemaVersion, 6);
   assert.equal(output.art.scale, 2.5);
   assert.deepEqual(output.effects, {
+    ...DEFAULT_EFFECTS,
     ...effects,
     bottomBarOpacity: effects.interfaceOpacity,
     inputOpacity: effects.bottomBarOpacity,
@@ -263,13 +270,35 @@ test("schema 5 payload preserves independent bottom and input opacity", async ()
 
   assert.equal(result.code, 0, result.stderr);
   const output = JSON.parse(result.stdout);
-  assert.equal(output.schemaVersion, 5);
+  assert.equal(output.schemaVersion, 6);
   assert.equal(output.effects.bottomBarOpacity, 0.42);
   assert.equal(output.effects.inputOpacity, 0.83);
+  assert.equal(output.effects.homeCardOpacity, 0.68);
+  assert.equal(output.effects.homeCardRadius, 18);
+  assert.equal(output.effects.homeCardHoverBrightness, 1.1);
 });
 
-test("injector rejects unsupported schema 6", async () => {
-  const result = await withTheme(baseTheme({ schemaVersion: 6 }), checkPayload);
+test("schema 6 payload preserves custom home card values", async () => {
+  const result = await withTheme(baseTheme({
+    schemaVersion: 6,
+    effects: {
+      ...DEFAULT_EFFECTS,
+      homeCardOpacity: 0.54,
+      homeCardRadius: 24,
+      homeCardHoverBrightness: 1.18,
+    },
+  }), checkPayload);
+
+  assert.equal(result.code, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.schemaVersion, 6);
+  assert.equal(output.effects.homeCardOpacity, 0.54);
+  assert.equal(output.effects.homeCardRadius, 24);
+  assert.equal(output.effects.homeCardHoverBrightness, 1.18);
+});
+
+test("injector rejects unsupported schema 7", async () => {
+  const result = await withTheme(baseTheme({ schemaVersion: 7 }), checkPayload);
 
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /schemaVersion/);
@@ -292,6 +321,9 @@ test("injector rejects enhanced values outside the Rust ranges", async () => {
     ["effects.bottomBarOpacity", { schemaVersion: 5, effects: { ...DEFAULT_EFFECTS, bottomBarOpacity: null } }],
     ["effects.inputOpacity", { schemaVersion: 5, effects: { ...DEFAULT_EFFECTS, inputOpacity: 1.01 } }],
     ["effects.inputOpacity", { schemaVersion: 5, effects: { ...DEFAULT_EFFECTS, inputOpacity: null } }],
+    ["effects.homeCardOpacity", { schemaVersion: 6, effects: { ...DEFAULT_EFFECTS, homeCardOpacity: 0.24 } }],
+    ["effects.homeCardRadius", { schemaVersion: 6, effects: { ...DEFAULT_EFFECTS, homeCardRadius: 29 } }],
+    ["effects.homeCardHoverBrightness", { schemaVersion: 6, effects: { ...DEFAULT_EFFECTS, homeCardHoverBrightness: 1.26 } }],
     ["effects.toneMode", { effects: { ...DEFAULT_EFFECTS, toneMode: "sepia" } }],
     ["effects.toneStrength", { effects: { ...DEFAULT_EFFECTS, toneStrength: 1.01 } }],
     ["effects.duotoneShadow", { effects: { ...DEFAULT_EFFECTS, duotoneShadow: "#123" } }],
@@ -605,7 +637,7 @@ async function createRendererHarness(theme, options = {}) {
   };
 }
 
-test("renderer applies schema 5 region and input opacity variables and cleanup removes them", async () => {
+test("renderer applies schema 6 region, input, and home card variables and cleanup removes them", async () => {
   const effects = {
     homeOpacity: 0.84,
     taskOpacity: 0.27,
@@ -619,6 +651,9 @@ test("renderer applies schema 5 region and input opacity variables and cleanup r
     rightSidebarOpacity: 0.43,
     bottomBarOpacity: 0.54,
     inputOpacity: 0.74,
+    homeCardOpacity: 0.54,
+    homeCardRadius: 24,
+    homeCardHoverBrightness: 1.18,
     toneMode: "wash",
     toneStrength: 0.66,
     duotoneShadow: "#010203",
@@ -626,7 +661,7 @@ test("renderer applies schema 5 region and input opacity variables and cleanup r
     washColor: "#456789",
   };
   const theme = baseTheme({
-    schemaVersion: 5,
+    schemaVersion: 6,
     art: { focusX: 0.5, focusY: 0.46, scale: 1.4, safeArea: "auto", taskMode: "auto" },
     effects,
   });
@@ -638,6 +673,9 @@ test("renderer applies schema 5 region and input opacity variables and cleanup r
   assert.equal(properties.get("--dream-right-sidebar-opacity"), "0.43");
   assert.equal(properties.get("--dream-bottom-bar-opacity"), "0.54");
   assert.equal(properties.get("--dream-input-opacity"), "0.74");
+  assert.equal(properties.get("--dream-home-card-opacity"), "0.54");
+  assert.equal(properties.get("--dream-home-card-radius"), "24px");
+  assert.equal(properties.get("--dream-home-card-hover-brightness"), "1.18");
   assert.equal(properties.has("--dream-sidebar-opacity"), false);
   assert.equal(properties.has("--dream-composer-opacity"), false);
   assert.equal(root.classList.contains("codex-dream-skin"), true);
@@ -651,6 +689,22 @@ test("renderer applies schema 5 region and input opacity variables and cleanup r
   assert.equal(root.classList.contains("codex-dream-skin"), false);
   assert.equal(root.classList.contains("dream-input-custom"), false);
   assert.equal(elements.has("codex-dream-skin-style"), false);
+});
+
+test("renderer falls back from invalid home card runtime values", async () => {
+  const { properties } = await createRendererHarness(baseTheme({
+    schemaVersion: 6,
+    effects: {
+      ...DEFAULT_EFFECTS,
+      homeCardOpacity: 0.1,
+      homeCardRadius: 99,
+      homeCardHoverBrightness: 2,
+    },
+  }));
+
+  assert.equal(properties.get("--dream-home-card-opacity"), "0.68");
+  assert.equal(properties.get("--dream-home-card-radius"), "18px");
+  assert.equal(properties.get("--dream-home-card-hover-brightness"), "1.1");
 });
 
 test("renderer maps semantic side, review, bottom, and composer surfaces independently", async () => {
@@ -935,6 +989,44 @@ test("home styling preserves native geometry", async () => {
   assert.doesNotMatch(css, /\.dream-home \[data-testid="home-icon"\]\s*\{[^}]*display:\s*none/s);
   assert.match(css, /\.dream-home \[data-feature="game-source"\]/);
   assert.match(css, /\.dream-home \.group\\\/home-suggestions/);
+  assert.match(css, /--dream-home-card-opacity/);
+  assert.match(css, /--dream-home-card-radius/);
+  assert.match(css, /--dream-home-card-hover-brightness/);
+  assert.match(css, /\.dream-home \.group\\\/home-suggestions button::before/);
+  assert.match(css, /\.dream-home \.group\\\/home-suggestions button:focus-visible/);
+  assert.match(css, /prefers-reduced-motion:\s*reduce/);
+  assert.match(css, /translateY\(-2px\)/);
+  assert.doesNotMatch(css, /\.group\\\/home-suggestions button\s*\{[^}]*filter:\s*brightness/s);
+
+  const iconHostRule = css.match(
+    /\.dream-home \.group\\\/home-suggestions button > span:first-child > span:first-child\s*\{([^}]*)\}/s,
+  )?.[1] ?? "";
+  assert.match(iconHostRule, /background:\s*transparent\s*!important/);
+  assert.doesNotMatch(iconHostRule, /var\(--dream-accent-soft\)/);
+  assert.match(iconHostRule, /justify-items:\s*center\s*!important/);
+  assert.match(iconHostRule, /align-items:\s*center\s*!important/);
+  assert.match(iconHostRule, /place-items:\s*center\s*!important/);
+  assert.match(iconHostRule, /justify-content:\s*center\s*!important/);
+  assert.match(iconHostRule, /align-content:\s*center\s*!important/);
+  assert.match(iconHostRule, /place-content:\s*center\s*!important/);
+  assert.doesNotMatch(iconHostRule, /border-radius|overflow:\s*hidden/);
+  assert.match(
+    iconHostRule,
+    /color:\s*color-mix\(in oklab, var\(--dream-text\) 72%, var\(--dream-accent\) 28%\)\s*!important/,
+  );
+  assert.match(iconHostRule, /line-height:\s*0/);
+  assert.doesNotMatch(iconHostRule, /0 0 0 6px/);
+  assert.match(
+    css,
+    /button > span:first-child > span:first-child :where\(span, div\)\s*\{[^}]*width:\s*100%\s*!important[^}]*height:\s*100%\s*!important[^}]*place-items:\s*center\s*!important[^}]*margin:\s*0\s*!important[^}]*padding:\s*0\s*!important[^}]*transform:\s*none\s*!important/s,
+  );
+  assert.match(
+    css,
+    /button > span:first-child > span:first-child svg\s*\{[^}]*display:\s*block\s*!important[^}]*width:\s*20px\s*!important[^}]*height:\s*20px\s*!important[^}]*place-self:\s*center\s*!important/s,
+  );
+  assert.doesNotMatch(css, /home-suggestions button:nth-child/);
+  assert.doesNotMatch(css, /home-suggestions[^}]*margin-left/si);
+  assert.doesNotMatch(css, /home-suggestions[^}]*translateX/si);
 });
 
 test("renderer and CSS contain no content-avoidance behavior", async () => {

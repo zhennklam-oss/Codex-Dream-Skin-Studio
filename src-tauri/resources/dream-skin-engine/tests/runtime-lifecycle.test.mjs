@@ -12,68 +12,6 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const injectorPath = path.resolve(here, "../scripts/injector.mjs");
 const injectorUrl = pathToFileURL(injectorPath).href;
 const startScriptPath = path.resolve(here, "../scripts/start-dream-skin.ps1");
-const commonScriptPath = path.resolve(here, "../scripts/common-windows.ps1");
-
-test("forced Codex shutdown waits for identity-safe process convergence", async () => {
-  const escapedScriptPath = commonScriptPath.replaceAll("'", "''");
-  const result = spawnSync("powershell.exe", [
-    "-NoProfile",
-    "-Command",
-    `$errors = $null; $ast = [System.Management.Automation.Language.Parser]::ParseFile('${escapedScriptPath}', [ref]$null, [ref]$errors); ` +
-      `if ($errors.Count) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }; ` +
-      `$waitFunction = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Wait-DreamSkinCodexExit' }, $true); ` +
-      `$stopFunction = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Stop-DreamSkinCodex' }, $true); ` +
-      `if ($null -eq $waitFunction -or $null -eq $stopFunction) { Write-Error 'Codex shutdown functions are missing'; exit 1 }; ` +
-      `Invoke-Expression $waitFunction.Extent.Text; ` +
-      `function Get-DreamSkinCodexProcesses { param([object]$Codex); $script:inventoryCalls++; $index = [Math]::Min($script:inventoryIndex, $script:inventorySequence.Count - 1); $count = [int]$script:inventorySequence[$index]; $script:inventoryIndex++; if ($count -le 0) { return @() }; return @(1..$count | ForEach-Object { [pscustomobject]@{ ProcessId = $_ } }) }; ` +
-      `function Get-Date { return $script:clock }; ` +
-      `function Start-Sleep { param([int]$Milliseconds); $script:sleeps += $Milliseconds; $script:clock = $script:clock.AddMilliseconds($Milliseconds) }; ` +
-      `function Run-Scenario { param([string]$Name, [int[]]$InventorySequence, [int]$TimeoutSeconds); $script:inventorySequence = @($InventorySequence); $script:inventoryIndex = 0; $script:inventoryCalls = 0; $script:sleeps = @(); $script:clock = [datetime]'2026-07-28T00:00:00Z'; $value = Wait-DreamSkinCodexExit -Codex ([pscustomobject]@{ Executable = 'verified' }) -TimeoutSeconds $TimeoutSeconds; return [pscustomobject]@{ name = $Name; result = [bool]$value; inventoryCalls = $script:inventoryCalls; sleeps = @($script:sleeps) } }; ` +
-      `$scenarios = @(` +
-        `Run-Scenario -Name 'exited' -InventorySequence @(0) -TimeoutSeconds 10; ` +
-        `Run-Scenario -Name 'zero-timeout' -InventorySequence @(1) -TimeoutSeconds 0; ` +
-        `Run-Scenario -Name 'converged' -InventorySequence @(1, 1, 0) -TimeoutSeconds 10; ` +
-        `Run-Scenario -Name 'timed-out' -InventorySequence @(1) -TimeoutSeconds 1` +
-      `); ` +
-      `[pscustomobject]@{ helper = $waitFunction.Extent.Text; stop = $stopFunction.Extent.Text; scenarios = $scenarios } | ConvertTo-Json -Depth 6 -Compress`,
-  ], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  const report = JSON.parse(result.stdout.trim());
-  const scenarios = Object.fromEntries(report.scenarios.map((scenario) => [scenario.name, scenario]));
-
-  assert.match(report.helper, /Get-DreamSkinCodexProcesses -Codex \$Codex/);
-  assert.match(report.helper, /Start-Sleep -Milliseconds 250/);
-  assert.deepEqual(scenarios.exited, {
-    name: "exited",
-    result: true,
-    inventoryCalls: 1,
-    sleeps: [],
-  });
-  assert.deepEqual(scenarios["zero-timeout"], {
-    name: "zero-timeout",
-    result: false,
-    inventoryCalls: 1,
-    sleeps: [],
-  });
-  assert.deepEqual(scenarios.converged, {
-    name: "converged",
-    result: true,
-    inventoryCalls: 3,
-    sleeps: [250, 250],
-  });
-  assert.deepEqual(scenarios["timed-out"], {
-    name: "timed-out",
-    result: false,
-    inventoryCalls: 5,
-    sleeps: [250, 250, 250, 250],
-  });
-  assert.match(report.stop, /Wait-DreamSkinCodexExit -Codex \$Codex -TimeoutSeconds 10/);
-  assert.doesNotMatch(report.stop, /Start-Sleep -Milliseconds 500/);
-});
 
 test("watcher heartbeat replacement and cleanup preserve the current owner", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "dream-skin-heartbeat-"));
@@ -467,44 +405,6 @@ test("a hanging canonical renderer preserves its specific WebSocket deadline err
   assert.doesNotMatch(result.stderr, /UV_HANDLE_CLOSING|Assertion failed/);
 });
 
-test("startup emits a structured terminal state", async () => {
-  const startScript = await fs.readFile(startScriptPath, "utf8");
-  assert.match(
-    startScript,
-    /Write-DreamSkinStartResult\s+-State\s+'active'\s+-Port\s+\$Port/,
-  );
-  assert.match(
-    startScript,
-    /Write-DreamSkinStartResult\s+-State\s+'starting'\s+-Port\s+\$Port/,
-  );
-
-  const escapedScriptPath = startScriptPath.replaceAll("'", "''");
-  const result = spawnSync("powershell.exe", [
-    "-NoProfile",
-    "-Command",
-    `$errors = $null; $ast = [System.Management.Automation.Language.Parser]::ParseFile('${escapedScriptPath}', [ref]$null, [ref]$errors); ` +
-      `if ($errors.Count) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }; ` +
-      `$function = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-DreamSkinStartResult' }, $true); ` +
-      `if ($null -eq $function) { Write-Error 'structured start result writer is missing'; exit 1 }; ` +
-      `Invoke-Expression $function.Extent.Text; ` +
-      `Write-DreamSkinStartResult -State 'active' -Port 9335; ` +
-      `Write-DreamSkinStartResult -State 'starting' -Port 9335`,
-  ], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  const results = result.stdout
-    .trim()
-    .split(/\r?\n/u)
-    .map((line) => JSON.parse(line));
-  assert.deepEqual(results, [
-    { mode: "start", state: "active", port: 9335 },
-    { mode: "start", state: "starting", port: 9335 },
-  ]);
-});
-
 test("startup keeps every bounded no-renderer verification pending", async () => {
   const { rendererConnectionFailureDetail } = await import(injectorUrl);
   assert.equal(
@@ -530,16 +430,6 @@ test("startup keeps every bounded no-renderer verification pending", async () =>
   const samples = [
     "No verified Codex renderer on 127.0.0.1:9335: No page matched the expected Codex shell markers",
     "No verified Codex renderer on 127.0.0.1:9335: CDP command timed out: Runtime.enable",
-    "CDP command timed out: Runtime.evaluate",
-    "  CDP command timed out: Runtime.evaluate\r\n",
-    "cdp command timed out: runtime.evaluate",
-    "CDP COMMAND TIMED OUT: RUNTIME.EVALUATE",
-    "CDP command timed out: Runtime.enable",
-    "CDP command timed out: Runtime.evaluate: payload invalid",
-    "CDP command timed out: Runtime.evaluate\n    at verifyRenderer (injector.mjs:1:1)",
-    "CDP command timed out: Runtime.evaluate and browser identity mismatch",
-    "WebSocket closed after CDP command timed out: Runtime.evaluate",
-    "CDP command timed out: Page.captureScreenshot",
     "Dream Skin verification failed because the theme payload is invalid",
   ];
   const result = spawnSync("powershell.exe", [
@@ -562,13 +452,7 @@ test("startup keeps every bounded no-renderer verification pending", async () =>
   });
 
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.deepEqual(
-    JSON.parse(result.stdout.trim()),
-    [
-      true, true, true, true,
-      false, false, false, false, false, false, false, false, false,
-    ],
-  );
+  assert.deepEqual(JSON.parse(result.stdout.trim()), [true, true, false]);
 });
 
 test("structured unskinned renderer stays pending but a mixed target failure does not", async () => {

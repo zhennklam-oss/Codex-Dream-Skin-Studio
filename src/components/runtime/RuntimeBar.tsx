@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { EnvironmentStatus, RuntimeStatus, StudioErrorPayload } from "../../lib/commands";
-import { formatStudioError } from "./error-presentation";
 import { RuntimeTransitionDialog } from "./RuntimeTransitionDialog";
 
 type Transition = {
@@ -195,7 +194,7 @@ export function RuntimeBar({ runtime, environment, dirty, busy, error = null, re
           stage={transition.stage}
           requiresRestart={transition.confirmRestart}
           runtimeStarting={runtime?.starting ?? false}
-          errorMessage={formatStudioError(error) ?? (runtime?.lastError ? "运行状态异常。请重新检测；如果再次出现，请打开日志。" : null)}
+          errorMessage={error?.message ?? runtime?.lastError}
           onCancel={closeDialog}
           onConfirm={() => void runTransition(transition.mode, transition.confirmRestart)}
           onRetry={() => void runTransition(transition.mode, transition.confirmRestart)}

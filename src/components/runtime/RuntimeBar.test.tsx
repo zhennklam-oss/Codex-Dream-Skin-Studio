@@ -207,10 +207,9 @@ describe("RuntimeBar", () => {
     rerender(<RuntimeBar
       {...baseProps}
       runtime={{ ...closed, codexRunning: true, starting: true }}
-      error={{ code: "PROCESS_TIMEOUT", message: "轮询验证超时", detail: "C:\\Users\\name\\startup-error.log" }}
+      error={{ code: "PROCESS_TIMEOUT", message: "轮询验证超时" }}
     />);
-    await waitFor(() => expect(screen.getByText("皮肤操作等待超时。 请等待 Codex 完成加载后重试；如果再次超时，请打开日志。")).toBeVisible());
-    expect(screen.queryByText(/轮询验证超时|C:\\Users/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("轮询验证超时")).toBeVisible());
     expect(screen.getByRole("button", { name: "重试" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "打开日志" })).toBeEnabled();
   });
@@ -244,8 +243,7 @@ describe("RuntimeBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "恢复官方外观" }));
     fireEvent.click(screen.getByRole("button", { name: "确认恢复官方外观" }));
 
-    await waitFor(() => expect(screen.getByText("操作未完成。 请重试；如果再次出现，请打开日志。")).toBeVisible());
-    expect(screen.queryByText("恢复失败")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("恢复失败")).toBeVisible());
     fireEvent.click(screen.getByRole("button", { name: "打开日志" }));
     expect(onOpenLogs).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
@@ -261,20 +259,19 @@ describe("RuntimeBar", () => {
     renderBar({ ...closed, codexRunning: true, requiresRestartConfirmation: true }, {
       onStart,
       onOpenLogs,
-      error: { code: "PROCESS_TIMEOUT", message: "启动超时", detail: "exit code 1 at C:\\engine\\start.ps1" },
+      error: { code: "PROCESS_TIMEOUT", message: "启动超时" },
     });
 
     fireEvent.click(screen.getByRole("button", { name: "启动皮肤" }));
     fireEvent.click(screen.getByRole("button", { name: "确认重启并启动" }));
 
-    await waitFor(() => expect(screen.getByText("皮肤操作等待超时。 请等待 Codex 完成加载后重试；如果再次超时，请打开日志。")).toBeVisible());
-    expect(screen.queryByText(/启动超时|exit code 1|start\.ps1/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("启动超时")).toBeVisible());
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(screen.queryByRole("dialog", { name: "启动皮肤" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "启动皮肤" }));
     fireEvent.click(screen.getByRole("button", { name: "确认重启并启动" }));
-    await waitFor(() => expect(screen.getByText("皮肤操作等待超时。 请等待 Codex 完成加载后重试；如果再次超时，请打开日志。")).toBeVisible());
+    await waitFor(() => expect(screen.getByText("启动超时")).toBeVisible());
     const retry = screen.getByRole("button", { name: "重试" });
     expect(retry).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "打开日志" }));
@@ -420,57 +417,17 @@ describe("StatusStrip", () => {
     expect(screen.getByRole("button", { name: "重新检测环境" })).toBeDisabled();
   });
 
-  it("maps stable errors to a concrete cause and recovery guidance", () => {
+  it("maps stable errors to concise Chinese guidance", () => {
     render(<StatusStrip error={{ code: "NODE_NOT_FOUND", message: "node missing" }} onDismiss={vi.fn()} onOpenLogs={vi.fn()} />);
-    expect(screen.getByText("未找到可用的 Node.js 运行环境。")).toBeVisible();
-    expect(screen.getByText("请重新检测环境；如果仍失败，请重新安装 Studio。")).toBeVisible();
-    expect(screen.queryByText(/node missing|PATH/)).not.toBeInTheDocument();
+    expect(screen.getByText("未找到 Node.js 22 或更高版本，请先安装或修复 PATH。" )).toBeVisible();
   });
 
-  it("maps the backend image pixel-limit code without exposing raw detail", () => {
-    render(<StatusStrip
-      error={{
-        code: "IMAGE_TOO_MANY_PIXELS",
-        message: "image exceeds the 50 megapixel limit",
-        detail: "C:\\Users\\name\\oversized.png",
-      }}
-      onDismiss={vi.fn()}
-      onOpenLogs={vi.fn()}
-    />);
-
-    expect(screen.getByText("图片总像素超过 5000 万。")).toBeVisible();
-    expect(screen.getByText("请降低图片分辨率后重新导入。")).toBeVisible();
-    expect(screen.queryByText(/50 megapixel|C:\\Users|oversized\.png/)).not.toBeInTheDocument();
-  });
-
-  it("shows a concrete Codex stop cause and recommended action without raw detail", () => {
-    const onRetryStart = vi.fn();
-    render(<StatusStrip
-      error={{
-        code: "CODEX_STOP_TIMEOUT",
-        message: "Start Dream Skin failed with exit code 1",
-        detail: "C:\\Users\\name\\engine\\start.ps1: Codex could not be stopped safely.",
-      }}
-      onDismiss={vi.fn()}
-      onOpenLogs={vi.fn()}
-      onRetryStart={onRetryStart}
-    />);
-
-    expect(screen.getByText("Codex 后台进程仍在退出，皮肤未能启动。")).toBeVisible();
-    expect(screen.getByText("请等待几秒后重试；如果仍失败，请先完全关闭 Codex。")).toBeVisible();
-    expect(screen.queryByText(/C:\\Users|start\.ps1|exit code 1/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "重试启动" }));
-    expect(onRetryStart).toHaveBeenCalledOnce();
-  });
-
-  it("uses safe fallback guidance for unknown errors", () => {
+  it("shows unknown backend messages and Open Logs", () => {
     const onOpenLogs = vi.fn();
-    const error: StudioErrorPayload = { code: "SOMETHING_NEW", message: "backend detail", detail: "raw stack" };
+    const error: StudioErrorPayload = { code: "SOMETHING_NEW", message: "backend detail" };
     render(<StatusStrip error={error} onDismiss={vi.fn()} onOpenLogs={onOpenLogs} />);
-    expect(screen.getByText("操作未完成。")).toBeVisible();
-    expect(screen.getByText("请重试；如果再次出现，请打开日志。")).toBeVisible();
-    expect(screen.queryByText(/backend detail|raw stack/)).not.toBeInTheDocument();
+    expect(screen.getByText("backend detail")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "打开日志" }));
-    expect(onOpenLogs).toHaveBeenCalledOnce();
+    expect(onOpenLogs).toHaveBeenCalled();
   });
 });

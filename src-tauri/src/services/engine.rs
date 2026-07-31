@@ -1,6 +1,4 @@
-use super::atomic_json;
 use crate::error::{StudioError, StudioResult};
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -19,12 +17,6 @@ use uuid::Uuid;
 
 const ENGINE_MANIFEST: &str = "ENGINE-SOURCE.json";
 const WATCHER_HEARTBEAT_STALE_AFTER: Duration = Duration::from_secs(30);
-const START_TRANSITION_SETTLE_TIMEOUT: Duration = Duration::from_secs(10);
-const START_TRANSITION_POLL_INTERVAL: Duration = Duration::from_millis(250);
-const START_PROBE_HISTORY_LIMIT: usize = 64;
-const START_PROBE_TEXT_CHAR_LIMIT: usize = 512;
-const START_PROBE_DETAIL_BYTE_LIMIT: usize = 65_536;
-const START_PROBE_TRUNCATION_MARKER: &str = "…[truncated]";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -96,95 +88,11 @@ pub struct RuntimeStatus {
     pub last_error: Option<String>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RuntimeFailureRecord<'a> {
-    timestamp: String,
-    operation: &'a str,
-    code: &'a str,
-    message: &'a str,
-    detail: Option<&'a str>,
-    process_exit_code: Option<i32>,
-    stdout: Option<&'a str>,
-    stderr: Option<&'a str>,
-}
-
-#[derive(Default)]
-struct RuntimeProbeHistory {
-    probes: Vec<serde_json::Value>,
-    dropped_count: usize,
-    truncated: bool,
-}
-
-impl RuntimeProbeHistory {
-    fn push(&mut self, probe: serde_json::Value, text_truncated: bool) {
-        self.truncated |= text_truncated;
-        if self.probes.len() < START_PROBE_HISTORY_LIMIT {
-            self.probes.push(probe);
-        } else {
-            self.dropped_count += 1;
-            self.truncated = true;
-            if let Some(latest) = self.probes.last_mut() {
-                *latest = probe;
-            }
-        }
-    }
-
-    fn into_detail(mut self) -> String {
-        loop {
-            let payload = serde_json::json!({
-                "probes": &self.probes,
-                "truncated": self.truncated,
-                "droppedCount": self.dropped_count,
-            });
-            match serde_json::to_string(&payload) {
-                Ok(serialized) if serialized.len() <= START_PROBE_DETAIL_BYTE_LIMIT => {
-                    return serialized;
-                }
-                Ok(_) if self.probes.len() > 2 => {
-                    self.probes.remove(self.probes.len() - 2);
-                    self.dropped_count += 1;
-                    self.truncated = true;
-                }
-                _ => {
-                    return serde_json::json!({
-                        "probes": [],
-                        "truncated": true,
-                        "droppedCount": self.dropped_count + self.probes.len(),
-                    })
-                    .to_string();
-                }
-            }
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WatcherHeartbeat {
     process_id: u32,
     updated_at: u64,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-struct StartResultEnvelope {
-    mode: StartResultMode,
-    state: StartResultState,
-    port: u16,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-enum StartResultMode {
-    Start,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-enum StartResultState {
-    Active,
-    Starting,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -485,8 +393,6 @@ pub struct EngineRuntime {
     state_root: PathBuf,
     runner: Arc<dyn ProcessRunner>,
     timeout: Duration,
-    start_transition_settle_timeout: Duration,
-    start_transition_poll_interval: Duration,
     mutation_lock: Arc<TokioMutex<()>>,
     inject_node_path: bool,
 }
@@ -513,22 +419,9 @@ impl EngineRuntime {
             state_root,
             runner,
             timeout,
-            start_transition_settle_timeout: START_TRANSITION_SETTLE_TIMEOUT,
-            start_transition_poll_interval: START_TRANSITION_POLL_INTERVAL,
             mutation_lock: Arc::new(TokioMutex::new(())),
             inject_node_path: false,
         }
-    }
-
-    #[cfg(test)]
-    fn with_start_transition_timing(
-        mut self,
-        settle_timeout: Duration,
-        poll_interval: Duration,
-    ) -> Self {
-        self.start_transition_settle_timeout = settle_timeout;
-        self.start_transition_poll_interval = poll_interval;
-        self
     }
 
     fn with_node_path_injection(mut self) -> Self {
@@ -545,21 +438,6 @@ impl EngineRuntime {
     }
 
     pub fn get_runtime_status(&self) -> StudioResult<RuntimeStatus> {
-        self.get_runtime_status_with_deadline(None, None)
-    }
-
-    fn get_runtime_status_with_deadline(
-        &self,
-        deadline: Option<Instant>,
-        resolved_node_path: Option<&Path>,
-    ) -> StudioResult<RuntimeStatus> {
-        let tasklist_timeout = deadline
-            .map(|deadline| {
-                deadline
-                    .saturating_duration_since(Instant::now())
-                    .min(Duration::from_secs(5))
-            })
-            .unwrap_or(Duration::from_secs(5));
         let tasklist = self.runner.run(
             Path::new("tasklist.exe"),
             &[
@@ -569,7 +447,7 @@ impl EngineRuntime {
                 OsString::from("CSV"),
                 OsString::from("/NH"),
             ],
-            tasklist_timeout,
+            Duration::from_secs(5),
         )?;
         ensure_process_success("Codex process inspection", tasklist.clone())?;
         let codex_running = tasklist.stdout.to_ascii_lowercase().contains("chatgpt.exe");
@@ -588,34 +466,15 @@ impl EngineRuntime {
                 Ok(port) => {
                     evidence.port = port;
                     if codex_running {
-                        let (verification_runner_timeout, verification_timeout_ms) = match deadline
-                        {
-                            Some(deadline) => {
-                                let remaining = deadline.saturating_duration_since(Instant::now());
-                                let timeout_ms = remaining.as_millis().min(1_500) as u64;
-                                if timeout_ms == 0 {
-                                    return Err(StudioError::new(
-                                            "RUNTIME_STATUS_TIMEOUT",
-                                            "Runtime status verification exceeded the startup settle budget",
-                                        ));
-                                }
-                                (self.timeout.min(remaining), timeout_ms)
-                            }
-                            None => (self.timeout, 1_500),
-                        };
                         let mut arguments = vec![
                             OsString::from("-TimeoutMilliseconds"),
-                            OsString::from(verification_timeout_ms.to_string()),
+                            OsString::from("1500"),
                         ];
                         if evidence.pause_marker_present {
                             arguments.push(OsString::from("-SessionOnly"));
                         }
-                        let output = self.run_powershell_script_with_timeout(
-                            "verify-dream-skin.ps1",
-                            &arguments,
-                            verification_runner_timeout,
-                            resolved_node_path,
-                        )?;
+                        let output =
+                            self.run_powershell_script("verify-dream-skin.ps1", &arguments)?;
                         evidence.verification_succeeded = output.exit_code == 0;
                         if output.exit_code != 0 {
                             evidence.verification_pending =
@@ -648,29 +507,10 @@ impl EngineRuntime {
         }
         let extra = confirm_restart.then(|| OsString::from("-RestartExisting"));
         let args: Vec<OsString> = extra.into_iter().collect();
-        let resolved_node_path = match self.prepare_node_path("start-dream-skin.ps1") {
-            Ok(path) => path,
-            Err(error) => {
-                self.record_runtime_failure("Start Dream Skin", &error, None);
-                return Err(error);
-            }
-        };
-        let command_output = self.run_powershell_script_with_timeout(
-            "start-dream-skin.ps1",
-            &args,
-            self.timeout,
-            resolved_node_path.as_deref(),
-        );
-        let diagnostic_output = command_output.as_ref().ok().cloned();
-        let command_result =
-            command_output.and_then(|output| ensure_process_success("Start Dream Skin", output));
         let result = self
-            .resolve_start_transition(command_result, resolved_node_path.as_deref())
-            .await;
-        if let Err(error) = &result {
-            self.record_runtime_failure("Start Dream Skin", error, diagnostic_output.as_ref());
-        }
-        result
+            .run_powershell_script("start-dream-skin.ps1", &args)
+            .and_then(|output| ensure_process_success("Start Dream Skin", output));
+        self.resolve_runtime_transition(result, start_target_reached, "Start Dream Skin")
     }
 
     pub async fn reconcile_runtime(&self) -> StudioResult<RuntimeStatus> {
@@ -703,30 +543,6 @@ impl EngineRuntime {
             elapsed.as_millis() as u64,
             WATCHER_HEARTBEAT_STALE_AFTER.as_millis() as u64,
         )
-    }
-
-    fn status_from_start_result(&self, output: &ProcessOutput) -> Option<RuntimeStatus> {
-        let result = parse_start_result(output)?;
-        let state_path = self.state_root.join("state.json");
-        if !state_path.is_file()
-            || read_structured_start_state_port(&state_path)? != result.port
-            || self.watcher_heartbeat_is_stale_now()
-        {
-            return None;
-        }
-        let (active_theme_id, active_theme_name) = read_active_theme_identity(&self.state_root);
-        let active = result.state == StartResultState::Active;
-        Some(RuntimeStatus {
-            codex_running: true,
-            skin_active: active,
-            starting: !active,
-            paused: false,
-            port: active.then_some(result.port),
-            active_theme_id,
-            active_theme_name,
-            requires_restart_confirmation: false,
-            last_error: None,
-        })
     }
 
     pub async fn pause_skin(&self) -> StudioResult<RuntimeStatus> {
@@ -828,16 +644,6 @@ impl EngineRuntime {
         script_name: &str,
         extra_arguments: &[OsString],
     ) -> StudioResult<ProcessOutput> {
-        self.run_powershell_script_with_timeout(script_name, extra_arguments, self.timeout, None)
-    }
-
-    fn run_powershell_script_with_timeout(
-        &self,
-        script_name: &str,
-        extra_arguments: &[OsString],
-        timeout: Duration,
-        resolved_node_path: Option<&Path>,
-    ) -> StudioResult<ProcessOutput> {
         let script = self.engine_root.join("scripts").join(script_name);
         let mut arguments = extra_arguments.to_vec();
         if self.inject_node_path
@@ -846,46 +652,25 @@ impl EngineRuntime {
                 "start-dream-skin.ps1" | "verify-dream-skin.ps1"
             )
         {
-            let node_path = match resolved_node_path {
-                Some(path) => path.to_path_buf(),
-                None => self.prepare_node_path(script_name)?.ok_or_else(|| {
-                    StudioError::new(
-                        "NODE_NOT_FOUND",
-                        "Node.js 22 or newer is unavailable in the bundled runtime and external fallback locations",
-                    )
-                })?,
-            };
+            let runtime = resolve_node_runtime(
+                &self.engine_root,
+                &SystemEnvironmentProbe,
+                &SystemNodeCandidateValidator,
+            )
+            .ok_or_else(|| {
+                StudioError::new(
+                    "NODE_NOT_FOUND",
+                    "Node.js 22 or newer is unavailable in the bundled runtime and external fallback locations",
+                )
+            })?;
             arguments.push(OsString::from("-NodePath"));
-            arguments.push(node_path.into_os_string());
+            arguments.push(runtime.path.into_os_string());
         }
         self.runner.run(
             Path::new("powershell.exe"),
             &powershell_script_arguments(&script, &arguments),
-            timeout,
+            self.timeout,
         )
-    }
-
-    fn prepare_node_path(&self, script_name: &str) -> StudioResult<Option<PathBuf>> {
-        if !self.inject_node_path
-            || !matches!(
-                script_name,
-                "start-dream-skin.ps1" | "verify-dream-skin.ps1"
-            )
-        {
-            return Ok(None);
-        }
-        resolve_node_runtime(
-            &self.engine_root,
-            &SystemEnvironmentProbe,
-            &SystemNodeCandidateValidator,
-        )
-        .map(|runtime| Some(runtime.path))
-        .ok_or_else(|| {
-            StudioError::new(
-                "NODE_NOT_FOUND",
-                "Node.js 22 or newer is unavailable in the bundled runtime and external fallback locations",
-            )
-        })
     }
 
     fn resolve_runtime_transition(
@@ -921,85 +706,6 @@ impl EngineRuntime {
             }
             Err(original) => Err(original),
         }
-    }
-
-    async fn resolve_start_transition(
-        &self,
-        command_result: StudioResult<ProcessOutput>,
-        resolved_node_path: Option<&Path>,
-    ) -> StudioResult<RuntimeStatus> {
-        match command_result {
-            Ok(output) => {
-                if let Some(status) = self.status_from_start_result(&output) {
-                    return Ok(status);
-                }
-                let deadline = Instant::now() + self.start_transition_settle_timeout;
-                let mut probes = RuntimeProbeHistory::default();
-                let mut first_probe = true;
-                loop {
-                    if !first_probe && Instant::now() >= deadline {
-                        return Err(StudioError::new(
-                            "RUNTIME_TARGET_NOT_REACHED",
-                            "Start Dream Skin completed but the requested runtime state was not reached",
-                        )
-                        .with_detail(probes.into_detail()));
-                    }
-                    first_probe = false;
-                    match self.get_runtime_status_with_deadline(Some(deadline), resolved_node_path)
-                    {
-                        Ok(status) if start_target_reached(&status) => return Ok(status),
-                        Ok(status) => {
-                            let (probe, truncated) = runtime_probe_snapshot(&status);
-                            probes.push(probe, truncated);
-                        }
-                        Err(error) => {
-                            let (probe, truncated) = runtime_probe_error(&error);
-                            probes.push(probe, truncated);
-                        }
-                    }
-
-                    let now = Instant::now();
-                    if now >= deadline {
-                        return Err(StudioError::new(
-                            "RUNTIME_TARGET_NOT_REACHED",
-                            "Start Dream Skin completed but the requested runtime state was not reached",
-                        )
-                        .with_detail(probes.into_detail()));
-                    }
-
-                    tokio::time::sleep(
-                        self.start_transition_poll_interval
-                            .min(deadline.saturating_duration_since(now)),
-                    )
-                    .await;
-                }
-            }
-            Err(original) if original.code() == "PROCESS_TIMEOUT" => resolve_reconciled_runtime(
-                original,
-                self.get_runtime_status(),
-                start_target_reached,
-            ),
-            Err(original) => Err(original),
-        }
-    }
-
-    fn record_runtime_failure(
-        &self,
-        operation: &str,
-        error: &StudioError,
-        output: Option<&ProcessOutput>,
-    ) {
-        let record = RuntimeFailureRecord {
-            timestamp: Utc::now().to_rfc3339(),
-            operation,
-            code: error.code(),
-            message: &error.message,
-            detail: error.detail.as_deref(),
-            process_exit_code: output.map(|output| output.exit_code),
-            stdout: output.map(|output| output.stdout.as_str()),
-            stderr: output.map(|output| output.stderr.as_str()),
-        };
-        let _ = atomic_json::write_json(&self.state_root.join("startup-error.log"), &record);
     }
 }
 
@@ -1038,42 +744,15 @@ fn parse_runtime_status(evidence: RuntimeEvidence) -> RuntimeStatus {
     }
 }
 
-fn parse_start_result(output: &ProcessOutput) -> Option<StartResultEnvelope> {
-    if output.exit_code != 0 {
-        return None;
-    }
-    let terminal_line = output
-        .stdout
-        .lines()
-        .rev()
-        .map(str::trim)
-        .find(|line| !line.is_empty())?;
-    let result = serde_json::from_str::<StartResultEnvelope>(terminal_line).ok()?;
-    (result.port != 0).then_some(result)
-}
-
 fn ensure_process_success(operation: &str, output: ProcessOutput) -> StudioResult<ProcessOutput> {
     if output.exit_code == 0 {
         Ok(output)
     } else {
-        let detail = process_failure_detail(&output);
         Err(StudioError::new(
-            classify_engine_failure(&detail),
+            "ENGINE_COMMAND_FAILED",
             format!("{operation} failed with exit code {}", output.exit_code),
         )
-        .with_detail(detail))
-    }
-}
-
-fn classify_engine_failure(detail: &str) -> &'static str {
-    if detail.contains("Codex could not be stopped safely.") {
-        "CODEX_STOP_TIMEOUT"
-    } else if detail.contains("did not expose a verified loopback CDP endpoint") {
-        "CDP_ENDPOINT_TIMEOUT"
-    } else if detail.contains("already occupied by an unverified listener") {
-        "PORT_IN_USE"
-    } else {
-        "ENGINE_COMMAND_FAILED"
+        .with_detail(process_failure_detail(&output)))
     }
 }
 
@@ -1142,7 +821,6 @@ fn is_expected_inactive_verification(output: &ProcessOutput) -> bool {
 fn verification_is_waiting_for_renderer(output: &ProcessOutput) -> bool {
     let detail = process_failure_detail(output);
     detail.contains("No verified Codex renderer on 127.0.0.1:")
-        || detail.trim() == "CDP command timed out: Runtime.evaluate"
         || verification_has_unskinned_renderer(output)
 }
 
@@ -1169,63 +847,6 @@ fn verification_has_unskinned_renderer(output: &ProcessOutput) -> bool {
 
 fn start_target_reached(status: &RuntimeStatus) -> bool {
     status.skin_active || status.starting
-}
-
-fn runtime_probe_snapshot(status: &RuntimeStatus) -> (serde_json::Value, bool) {
-    let state = if status.skin_active {
-        "active"
-    } else if status.starting {
-        "starting"
-    } else if status.codex_running {
-        "inactive"
-    } else {
-        "stopped"
-    };
-    let (last_error, truncated) = status
-        .last_error
-        .as_deref()
-        .map(bound_probe_text)
-        .map(|(value, truncated)| (Some(value), truncated))
-        .unwrap_or((None, false));
-    (
-        serde_json::json!({
-            "codexRunning": status.codex_running,
-            "state": state,
-            "starting": status.starting,
-            "skinActive": status.skin_active,
-            "lastError": last_error,
-        }),
-        truncated,
-    )
-}
-
-fn runtime_probe_error(error: &StudioError) -> (serde_json::Value, bool) {
-    let (message, message_truncated) = bound_probe_text(&error.message);
-    let (detail, detail_truncated) = error
-        .detail
-        .as_deref()
-        .map(bound_probe_text)
-        .map(|(value, truncated)| (Some(value), truncated))
-        .unwrap_or((None, false));
-    (
-        serde_json::json!({
-            "errorCode": error.code(),
-            "message": message,
-            "detail": detail,
-        }),
-        message_truncated || detail_truncated,
-    )
-}
-
-fn bound_probe_text(value: &str) -> (String, bool) {
-    if value.chars().count() <= START_PROBE_TEXT_CHAR_LIMIT {
-        return (value.to_string(), false);
-    }
-    let marker_chars = START_PROBE_TRUNCATION_MARKER.chars().count();
-    let retained_chars = START_PROBE_TEXT_CHAR_LIMIT.saturating_sub(marker_chars);
-    let mut bounded = value.chars().take(retained_chars).collect::<String>();
-    bounded.push_str(START_PROBE_TRUNCATION_MARKER);
-    (bounded, true)
 }
 
 fn restore_target_reached(
@@ -1267,16 +888,6 @@ fn read_state_port(path: &Path) -> StudioResult<Option<u16>> {
             })
         }
     }
-}
-
-fn read_structured_start_state_port(path: &Path) -> Option<u16> {
-    let bytes = fs::read(path).ok()?;
-    let state: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    state
-        .get("port")?
-        .as_u64()
-        .and_then(|value| u16::try_from(value).ok())
-        .filter(|port| *port > 0)
 }
 
 fn watcher_heartbeat_is_stale(path: &Path, now_ms: u64, stale_after_ms: u64) -> bool {
@@ -2382,7 +1993,7 @@ mod runtime_lifecycle_tests {
             &script,
             r#"
               $child = Start-Process powershell.exe -ArgumentList @(
-                '-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 30'
+                '-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 4'
               ) -WindowStyle Hidden -PassThru
               [Console]::Out.WriteLine("direct child complete:$($child.Id)")
               [Console]::Error.WriteLine('direct child diagnostic')
@@ -2391,32 +2002,19 @@ mod runtime_lifecycle_tests {
         )
         .unwrap();
         let runner = SystemProcessRunner;
+        let started = Instant::now();
 
         let output = runner
             .run(
                 Path::new("powershell.exe"),
                 &powershell_script_arguments(&script, &[]),
-                Duration::from_secs(8),
+                Duration::from_secs(2),
             )
             .unwrap();
 
+        assert!(started.elapsed() < Duration::from_secs(2));
         assert!(output.stdout.contains("direct child complete"));
         assert!(output.stderr.contains("direct child diagnostic"));
-        let grandchild_pid = output
-            .stdout
-            .lines()
-            .find_map(|line| line.strip_prefix("direct child complete:"))
-            .and_then(|pid| pid.trim().parse::<u32>().ok())
-            .expect("direct child output did not contain the grandchild PID");
-        let grandchild_identity = wait_for_process_identity(grandchild_pid, Duration::from_secs(8))
-            .expect("grandchild exited before the direct child output was collected");
-        let mut grandchild = ExactTestProcess::from_identity(grandchild_identity.clone());
-
-        assert_eq!(
-            query_process_identity(grandchild_pid),
-            Some(grandchild_identity)
-        );
-        grandchild.terminate().unwrap();
     }
 
     #[cfg(windows)]
@@ -2642,22 +2240,15 @@ mod runtime_lifecycle_tests {
             }
         }
 
-        fn from_identity(identity: TestProcessIdentity) -> Self {
-            Self {
-                child: None,
-                identity,
-            }
-        }
-
         fn terminate(&mut self) -> StudioResult<()> {
             if query_process_identity(self.identity.process_id).as_ref() != Some(&self.identity) {
                 self.child.take();
                 return Ok(());
             }
-            match self.child.take() {
-                Some(mut child) => terminate_spawned_process_tree(&mut child),
-                None => terminate_exact_test_identity(&self.identity),
-            }
+            let mut child = self.child.take().ok_or_else(|| {
+                StudioError::new("TEST_PROCESS_MISSING", "Test process handle is unavailable")
+            })?;
+            terminate_spawned_process_tree(&mut child)
         }
     }
 
@@ -2893,37 +2484,6 @@ mod runtime_lifecycle_tests {
     }
 
     #[test]
-    fn engine_command_failures_map_known_runtime_causes() {
-        for (detail, expected) in [
-            (
-                "Codex could not be stopped safely.",
-                "CODEX_STOP_TIMEOUT",
-            ),
-            (
-                "Codex did not expose a verified loopback CDP endpoint on port 9335 within 45 seconds.",
-                "CDP_ENDPOINT_TIMEOUT",
-            ),
-            (
-                "Port 9335 is already occupied by an unverified listener. Choose another port.",
-                "PORT_IN_USE",
-            ),
-            ("start failed for a real reason", "ENGINE_COMMAND_FAILED"),
-        ] {
-            let error = ensure_process_success(
-                "Start Dream Skin",
-                ProcessOutput {
-                    exit_code: 1,
-                    stdout: String::new(),
-                    stderr: detail.into(),
-                },
-            )
-            .unwrap_err();
-            assert_eq!(error.code(), expected, "{detail}");
-            assert_eq!(error.detail.as_deref(), Some(detail));
-        }
-    }
-
-    #[test]
     fn paused_status_uses_session_only_verification() {
         let root = tempdir().unwrap();
         let engine = root.path().join("engine");
@@ -2989,59 +2549,6 @@ mod runtime_lifecycle_tests {
             .1
             .windows(2)
             .any(|pair| { pair[0] == "-TimeoutMilliseconds" && pair[1] == "1500" }));
-    }
-
-    #[test]
-    fn runtime_evaluate_timeout_requires_an_exact_signal() {
-        for (detail, expected_starting) in [
-            ("CDP command timed out: Runtime.evaluate", true),
-            ("  CDP command timed out: Runtime.evaluate\r\n", true),
-            ("CDP command timed out: Runtime.enable", false),
-            (
-                "CDP command timed out: Runtime.evaluate: payload invalid",
-                false,
-            ),
-            (
-                "CDP command timed out: Runtime.evaluate\n    at verify_renderer (injector.mjs:1:1)",
-                false,
-            ),
-            (
-                "CDP command timed out: Runtime.evaluate and browser identity mismatch",
-                false,
-            ),
-            (
-                "WebSocket closed after CDP command timed out: Runtime.evaluate",
-                false,
-            ),
-            ("CDP command timed out: Page.captureScreenshot", false),
-        ] {
-            let root = tempdir().unwrap();
-            let engine = root.path().join("engine");
-            fs::create_dir_all(engine.join("scripts")).unwrap();
-            let state = root.path().join("state");
-            fs::create_dir_all(&state).unwrap();
-            fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
-            let runner = Arc::new(RecordingRunner::new(vec![
-                ProcessOutput::success("ChatGPT.exe,1234"),
-                ProcessOutput {
-                    exit_code: 2,
-                    stdout: String::new(),
-                    stderr: detail.into(),
-                },
-            ]));
-            let runtime =
-                EngineRuntime::with_runner(engine, state, runner, Duration::from_secs(2));
-
-            let status = runtime.get_runtime_status().unwrap();
-
-            assert_eq!(status.starting, expected_starting, "{detail}");
-            assert!(!status.skin_active, "{detail}");
-            if expected_starting {
-                assert_eq!(status.last_error, None, "{detail}");
-            } else {
-                assert_eq!(status.last_error.as_deref(), Some(detail.trim()), "{detail}");
-            }
-        }
     }
 
     #[tokio::test]
@@ -3143,8 +2650,6 @@ mod runtime_lifecycle_tests {
         let state = root.path().join("state");
         fs::create_dir_all(&state).unwrap();
         fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
-        let previous_diagnostic = br#"{"code":"PREVIOUS_FAILURE"}"#;
-        fs::write(state.join("startup-error.log"), previous_diagnostic).unwrap();
         let runner = Arc::new(RecordingRunner::new_results(vec![
             Ok(ProcessOutput::success("ChatGPT.exe,1234")),
             Ok(ProcessOutput {
@@ -3159,17 +2664,12 @@ mod runtime_lifecycle_tests {
             Ok(ProcessOutput::success("ChatGPT.exe,1234")),
             Ok(ProcessOutput::success("session verified")),
         ]));
-        let runtime =
-            EngineRuntime::with_runner(engine, state.clone(), runner, Duration::from_secs(2));
+        let runtime = EngineRuntime::with_runner(engine, state, runner, Duration::from_secs(2));
 
         let status = runtime.start_skin(true).await.unwrap();
 
         assert!(status.skin_active);
         assert_eq!(status.last_error, None);
-        assert_eq!(
-            fs::read(state.join("startup-error.log")).unwrap(),
-            previous_diagnostic
-        );
     }
 
     #[tokio::test]
@@ -3198,140 +2698,6 @@ mod runtime_lifecycle_tests {
             Some("start failed for a real reason")
         );
         assert_eq!(runner.calls().len(), 2);
-    }
-
-    #[tokio::test]
-    async fn failed_start_writes_the_latest_structured_diagnostic() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let state = root.path().join("state");
-        let runner = Arc::new(RecordingRunner::new(vec![
-            ProcessOutput::success("ChatGPT.exe,1234"),
-            ProcessOutput {
-                exit_code: 7,
-                stdout: "partial stdout\r\n".into(),
-                stderr: "  Codex could not be stopped safely.\r\n".into(),
-            },
-        ]));
-        let runtime =
-            EngineRuntime::with_runner(engine, state.clone(), runner, Duration::from_secs(2));
-
-        let error = runtime.start_skin(true).await.unwrap_err();
-        let record: serde_json::Value =
-            serde_json::from_slice(&fs::read(state.join("startup-error.log")).unwrap()).unwrap();
-
-        assert_eq!(error.code(), "CODEX_STOP_TIMEOUT");
-        assert_eq!(record["operation"], "Start Dream Skin");
-        assert_eq!(record["code"], "CODEX_STOP_TIMEOUT");
-        assert_eq!(record["detail"], "Codex could not be stopped safely.");
-        assert_eq!(record["processExitCode"], 7);
-        assert_eq!(record["stdout"], "partial stdout\r\n");
-        assert_eq!(record["stderr"], "  Codex could not be stopped safely.\r\n");
-        assert!(record["timestamp"]
-            .as_str()
-            .is_some_and(|value| !value.is_empty()));
-    }
-
-    #[tokio::test]
-    async fn consecutive_failed_starts_replace_the_latest_structured_diagnostic() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let state = root.path().join("state");
-        let runner = Arc::new(RecordingRunner::new(vec![
-            ProcessOutput::success("ChatGPT.exe,1234"),
-            ProcessOutput {
-                exit_code: 1,
-                stdout: "first stdout".into(),
-                stderr: "Codex could not be stopped safely.".into(),
-            },
-            ProcessOutput::success("ChatGPT.exe,1234"),
-            ProcessOutput {
-                exit_code: 9,
-                stdout: "second stdout".into(),
-                stderr: "Port 9335 is already occupied by an unverified listener.".into(),
-            },
-        ]));
-        let runtime =
-            EngineRuntime::with_runner(engine, state.clone(), runner, Duration::from_secs(2));
-
-        let first_error = runtime.start_skin(true).await.unwrap_err();
-        assert_eq!(first_error.code(), "CODEX_STOP_TIMEOUT");
-        let first_record: serde_json::Value =
-            serde_json::from_slice(&fs::read(state.join("startup-error.log")).unwrap()).unwrap();
-        assert_eq!(first_record["code"], "CODEX_STOP_TIMEOUT");
-
-        let second_error = runtime.start_skin(true).await.unwrap_err();
-        assert_eq!(second_error.code(), "PORT_IN_USE");
-        let second_record: serde_json::Value =
-            serde_json::from_slice(&fs::read(state.join("startup-error.log")).unwrap()).unwrap();
-        assert_eq!(second_record["code"], "PORT_IN_USE");
-        assert_eq!(
-            second_record["detail"],
-            "Port 9335 is already occupied by an unverified listener."
-        );
-        assert_eq!(second_record["processExitCode"], 9);
-        assert_eq!(second_record["stdout"], "second stdout");
-        assert_eq!(
-            second_record["stderr"],
-            "Port 9335 is already occupied by an unverified listener."
-        );
-    }
-
-    #[tokio::test]
-    async fn failed_start_preserves_the_original_error_when_diagnostic_write_fails() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let state = root.path().join("state");
-        fs::write(&state, b"not a directory").unwrap();
-        let runner = Arc::new(RecordingRunner::new(vec![
-            ProcessOutput::success("ChatGPT.exe,1234"),
-            ProcessOutput {
-                exit_code: 1,
-                stdout: String::new(),
-                stderr: "start failed for a real reason".into(),
-            },
-        ]));
-        let runtime = EngineRuntime::with_runner(engine, state, runner, Duration::from_secs(2));
-
-        let error = runtime.start_skin(true).await.unwrap_err();
-
-        assert_eq!(error.code(), "ENGINE_COMMAND_FAILED");
-        assert_eq!(
-            error.detail.as_deref(),
-            Some("start failed for a real reason")
-        );
-    }
-
-    #[tokio::test]
-    async fn runner_error_diagnostic_has_null_process_context() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let state = root.path().join("state");
-        let runner = Arc::new(RecordingRunner::new_results(vec![
-            Ok(ProcessOutput::success("ChatGPT.exe,1234")),
-            Err(StudioError::new(
-                "IO",
-                "runner failed before process output",
-            )),
-        ]));
-        let runtime =
-            EngineRuntime::with_runner(engine, state.clone(), runner, Duration::from_secs(2));
-
-        let error = runtime.start_skin(true).await.unwrap_err();
-        let record: serde_json::Value =
-            serde_json::from_slice(&fs::read(state.join("startup-error.log")).unwrap()).unwrap();
-
-        assert_eq!(error.code(), "IO");
-        assert_eq!(
-            record.get("processExitCode"),
-            Some(&serde_json::Value::Null)
-        );
-        assert_eq!(record.get("stdout"), Some(&serde_json::Value::Null));
-        assert_eq!(record.get("stderr"), Some(&serde_json::Value::Null));
     }
 
     #[tokio::test]
@@ -3383,171 +2749,6 @@ mod runtime_lifecycle_tests {
     }
 
     #[tokio::test]
-    async fn start_result_active_bypasses_redundant_runtime_probes_with_matching_evidence() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let state = root.path().join("state");
-        fs::create_dir_all(state.join("active-theme")).unwrap();
-        fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
-        fs::write(
-            state.join("active-theme").join("theme.json"),
-            br#"{"id":"yingying","name":"Yingying"}"#,
-        )
-        .unwrap();
-        write_fresh_watcher_heartbeat(&state);
-        let runner = Arc::new(RecordingRunner::new(vec![]));
-        let runtime =
-            EngineRuntime::with_runner(engine, state, runner.clone(), Duration::from_secs(2));
-
-        let status = runtime
-            .resolve_start_transition(
-                Ok(ProcessOutput::success(
-                    "Codex Dream Skin is active on verified loopback port 9335.\r\n{\"mode\":\"start\",\"state\":\"active\",\"port\":9335}\r\n",
-                )),
-                None,
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(
-            status,
-            RuntimeStatus {
-                codex_running: true,
-                skin_active: true,
-                starting: false,
-                paused: false,
-                port: Some(9335),
-                active_theme_id: Some("yingying".into()),
-                active_theme_name: Some("Yingying".into()),
-                requires_restart_confirmation: false,
-                last_error: None,
-            }
-        );
-        assert!(runner.calls().is_empty());
-    }
-
-    #[tokio::test]
-    async fn start_result_starting_bypasses_redundant_runtime_probes_with_matching_evidence() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let state = root.path().join("state");
-        fs::create_dir_all(&state).unwrap();
-        fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
-        write_fresh_watcher_heartbeat(&state);
-        let runner = Arc::new(RecordingRunner::new(vec![]));
-        let runtime =
-            EngineRuntime::with_runner(engine, state, runner.clone(), Duration::from_secs(2));
-
-        let status = runtime
-            .resolve_start_transition(
-                Ok(ProcessOutput::success(
-                    "{\"mode\":\"start\",\"state\":\"starting\",\"port\":9335}",
-                )),
-                None,
-            )
-            .await
-            .unwrap();
-
-        assert!(status.codex_running);
-        assert!(!status.skin_active);
-        assert!(status.starting);
-        assert_eq!(status.port, None);
-        assert!(!status.requires_restart_confirmation);
-        assert_eq!(status.last_error, None);
-        assert!(runner.calls().is_empty());
-    }
-
-    #[tokio::test]
-    async fn start_result_invalid_or_inconsistent_evidence_uses_bounded_convergence() {
-        let scenarios = [
-            ("malformed", "not-json", Some(r#"{"port":9335}"#), true),
-            (
-                "unknown-state",
-                r#"{"mode":"start","state":"ready","port":9335}"#,
-                Some(r#"{"port":9335}"#),
-                true,
-            ),
-            (
-                "mismatched-port",
-                r#"{"mode":"start","state":"active","port":9444}"#,
-                Some(r#"{"port":9335}"#),
-                true,
-            ),
-            (
-                "missing-state",
-                r#"{"mode":"start","state":"active","port":9335}"#,
-                None,
-                true,
-            ),
-            (
-                "missing-port",
-                r#"{"mode":"start","state":"active","port":9335}"#,
-                Some("{}"),
-                true,
-            ),
-            (
-                "null-port",
-                r#"{"mode":"start","state":"active","port":9335}"#,
-                Some(r#"{"port":null}"#),
-                true,
-            ),
-            (
-                "stale-heartbeat",
-                r#"{"mode":"start","state":"active","port":9335}"#,
-                Some(r#"{"port":9335}"#),
-                false,
-            ),
-        ];
-
-        for (name, stdout, state_json, fresh_heartbeat) in scenarios {
-            let root = tempdir().unwrap();
-            let engine = root.path().join("engine");
-            fs::create_dir_all(engine.join("scripts")).unwrap();
-            let state = root.path().join("state");
-            fs::create_dir_all(&state).unwrap();
-            if let Some(state_json) = state_json {
-                fs::write(state.join("state.json"), state_json).unwrap();
-            }
-            if fresh_heartbeat {
-                write_fresh_watcher_heartbeat(&state);
-            } else {
-                fs::write(
-                    state.join("watcher-heartbeat.json"),
-                    br#"{"processId":7,"updatedAt":1}"#,
-                )
-                .unwrap();
-            }
-            let runner = Arc::new(RecordingRunner::new(vec![ProcessOutput::success(
-                "INFO: No tasks are running which match the specified criteria.",
-            )]));
-            let runtime =
-                EngineRuntime::with_runner(engine, state, runner.clone(), Duration::from_secs(2))
-                    .with_start_transition_timing(Duration::ZERO, Duration::ZERO);
-
-            let error = runtime
-                .resolve_start_transition(Ok(ProcessOutput::success(stdout)), None)
-                .await
-                .unwrap_err();
-
-            assert_eq!(error.code(), "RUNTIME_TARGET_NOT_REACHED", "{name}");
-            assert_eq!(runner.calls().len(), 1, "{name} did not use fallback");
-        }
-    }
-
-    #[test]
-    fn start_result_nonzero_exit_is_never_trusted() {
-        let output = ProcessOutput {
-            exit_code: 7,
-            stdout: r#"{"mode":"start","state":"active","port":9335}"#.into(),
-            stderr: "start failed".into(),
-        };
-
-        assert_eq!(parse_start_result(&output), None);
-    }
-
-    #[tokio::test]
     async fn successful_start_requires_the_requested_runtime_target() {
         let root = tempdir().unwrap();
         let engine = root.path().join("engine");
@@ -3559,383 +2760,11 @@ mod runtime_lifecycle_tests {
             ProcessOutput::success("started"),
             ProcessOutput::success("ChatGPT.exe,1234"),
         ]));
-        let runtime =
-            EngineRuntime::with_runner(engine, state.clone(), runner, Duration::from_secs(2))
-                .with_start_transition_timing(Duration::ZERO, Duration::ZERO);
+        let runtime = EngineRuntime::with_runner(engine, state, runner, Duration::from_secs(2));
 
         let error = runtime.start_skin(true).await.unwrap_err();
-        let record: serde_json::Value =
-            serde_json::from_slice(&fs::read(state.join("startup-error.log")).unwrap()).unwrap();
 
         assert_eq!(error.code(), "RUNTIME_TARGET_NOT_REACHED");
-        assert_eq!(record["code"], "RUNTIME_TARGET_NOT_REACHED");
-        assert_eq!(record["processExitCode"], 0);
-        assert_eq!(record["stdout"], "started");
-        assert_eq!(record["stderr"], "");
-    }
-
-    #[tokio::test]
-    async fn successful_start_waits_for_runtime_target_to_converge() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let state = root.path().join("state");
-        fs::create_dir_all(&state).unwrap();
-        fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
-        let inactive = || ProcessOutput {
-            exit_code: 2,
-            stdout: String::new(),
-            stderr: "Codex renderer has not finished loading".into(),
-        };
-        let runner = Arc::new(RecordingRunner::new(vec![
-            ProcessOutput::success("ChatGPT.exe,1234"),
-            inactive(),
-            ProcessOutput::success("started"),
-            ProcessOutput::success("ChatGPT.exe,1234"),
-            inactive(),
-            ProcessOutput::success("ChatGPT.exe,1234"),
-            ProcessOutput {
-                exit_code: 2,
-                stdout: String::new(),
-                stderr: "CDP command timed out: Runtime.evaluate".into(),
-            },
-        ]));
-        let runtime =
-            EngineRuntime::with_runner(engine, state.clone(), runner, Duration::from_secs(2))
-                .with_start_transition_timing(Duration::from_millis(50), Duration::from_millis(1));
-
-        let status = runtime.start_skin(true).await.unwrap();
-
-        assert!(status.starting);
-        assert!(!status.skin_active);
-        assert!(!state.join("startup-error.log").exists());
-    }
-
-    #[tokio::test]
-    async fn successful_start_records_probe_history_after_convergence_expires() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let state = root.path().join("state");
-        fs::create_dir_all(&state).unwrap();
-        fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
-        let inactive = || ProcessOutput {
-            exit_code: 2,
-            stdout: String::new(),
-            stderr: "Codex renderer has not finished loading".into(),
-        };
-        let mut outputs = vec![
-            ProcessOutput::success("ChatGPT.exe,1234"),
-            inactive(),
-            ProcessOutput::success("started"),
-        ];
-        for _ in 0..64 {
-            outputs.push(ProcessOutput::success("ChatGPT.exe,1234"));
-            outputs.push(inactive());
-        }
-        let runner = Arc::new(RecordingRunner::new(outputs));
-        let runtime = EngineRuntime::with_runner(
-            engine,
-            state.clone(),
-            runner.clone(),
-            Duration::from_secs(2),
-        )
-        .with_start_transition_timing(Duration::from_millis(5), Duration::from_millis(1));
-
-        let error = runtime.start_skin(true).await.unwrap_err();
-        let record: serde_json::Value =
-            serde_json::from_slice(&fs::read(state.join("startup-error.log")).unwrap()).unwrap();
-        let detail = error.detail.as_deref().unwrap();
-        let payload: serde_json::Value = serde_json::from_str(detail).unwrap();
-        let observed_probe_count = runner
-            .calls()
-            .iter()
-            .filter(|(program, _, _)| program == Path::new("tasklist.exe"))
-            .count()
-            - 1;
-
-        assert_eq!(error.code(), "RUNTIME_TARGET_NOT_REACHED");
-        assert!(detail.contains("\"codexRunning\":true"));
-        assert!(detail.contains("\"state\":\"inactive\""));
-        assert!(detail.contains("\"starting\":false"));
-        assert!(detail.contains("\"skinActive\":false"));
-        assert!(detail.contains("\"lastError\":\"Codex renderer has not finished loading\""));
-        assert!(!detail.contains("\"lastError\":null"));
-        assert_eq!(
-            payload["probes"].as_array().unwrap().len(),
-            observed_probe_count
-        );
-        assert_eq!(record["code"], "RUNTIME_TARGET_NOT_REACHED");
-        assert_eq!(record["detail"], detail);
-    }
-
-    #[tokio::test]
-    async fn startup_status_probes_do_not_exceed_remaining_settle_budget() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let state = root.path().join("state");
-        fs::create_dir_all(&state).unwrap();
-        fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
-        let inactive = || ProcessOutput {
-            exit_code: 2,
-            stdout: String::new(),
-            stderr: "Codex renderer has not finished loading".into(),
-        };
-        let runner = Arc::new(RecordingRunner::new_with_delays(
-            vec![
-                ProcessOutput::success("ChatGPT.exe,1234"),
-                inactive(),
-                ProcessOutput::success("started"),
-                ProcessOutput::success("ChatGPT.exe,1234"),
-                ProcessOutput {
-                    exit_code: 2,
-                    stdout: String::new(),
-                    stderr: "CDP command timed out: Runtime.evaluate".into(),
-                },
-            ],
-            vec![
-                Duration::ZERO,
-                Duration::ZERO,
-                Duration::ZERO,
-                Duration::from_millis(15),
-                Duration::ZERO,
-            ],
-        ));
-        let settle_budget = Duration::from_millis(50);
-        let runtime =
-            EngineRuntime::with_runner(engine, state, runner.clone(), Duration::from_secs(2))
-                .with_start_transition_timing(settle_budget, Duration::from_millis(1));
-
-        let status = runtime.start_skin(true).await.unwrap();
-        let calls = runner.calls();
-        let status_probe_calls = &calls[3..];
-        let verify_call = &status_probe_calls[1];
-        let timeout_argument_index = verify_call
-            .1
-            .iter()
-            .position(|argument| argument == "-TimeoutMilliseconds")
-            .unwrap();
-        let verifier_timeout_ms = verify_call.1[timeout_argument_index + 1]
-            .to_string_lossy()
-            .parse::<u64>()
-            .unwrap();
-
-        assert!(status.starting);
-        assert!(status_probe_calls
-            .iter()
-            .all(|(_, _, timeout)| *timeout <= settle_budget));
-        assert!(verify_call.2 < status_probe_calls[0].2);
-        assert!(verifier_timeout_ms > 0);
-        assert!(verifier_timeout_ms <= settle_budget.as_millis() as u64);
-        assert!(Duration::from_millis(verifier_timeout_ms) <= verify_call.2);
-    }
-
-    #[tokio::test]
-    async fn startup_reuses_the_prepared_node_path_for_start_and_verify() {
-        let manifest_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let root = tempfile::tempdir_in(manifest_root.join("target")).unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        fs::create_dir_all(engine.join("runtime")).unwrap();
-        let source_node = manifest_root
-            .join("resources")
-            .join("dream-skin-engine")
-            .join("runtime")
-            .join("node.exe");
-        let resolved_node = engine.join("runtime").join("node.exe");
-        fs::hard_link(source_node, &resolved_node).unwrap();
-        let expected_resolved_node = fs::canonicalize(&resolved_node).unwrap();
-        let state = root.path().join("state");
-        let runner = Arc::new(StartNodeReuseRunner::new(
-            state.clone(),
-            resolved_node.clone(),
-        ));
-        let runtime =
-            EngineRuntime::with_runner(engine, state, runner.clone(), Duration::from_secs(2))
-                .with_node_path_injection()
-                .with_start_transition_timing(Duration::from_millis(20), Duration::from_millis(1));
-
-        let status = runtime.start_skin(true).await.unwrap();
-        let node_arguments = runner
-            .calls()
-            .iter()
-            .filter_map(|(_, arguments, _)| {
-                arguments
-                    .windows(2)
-                    .find_map(|pair| (pair[0] == "-NodePath").then(|| PathBuf::from(&pair[1])))
-            })
-            .collect::<Vec<_>>();
-
-        assert!(status.starting);
-        assert_eq!(
-            node_arguments,
-            vec![expected_resolved_node.clone(), expected_resolved_node]
-        );
-    }
-
-    #[test]
-    fn provided_node_path_bypasses_resolution_for_repeated_verify_calls() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let resolved_node = root.path().join("already-validated-node.exe");
-        let runner = Arc::new(RecordingRunner::new(vec![
-            ProcessOutput::success("verified once"),
-            ProcessOutput::success("verified twice"),
-        ]));
-        let runtime = EngineRuntime::with_runner(
-            engine,
-            root.path().join("state"),
-            runner.clone(),
-            Duration::from_secs(2),
-        )
-        .with_node_path_injection();
-
-        for _ in 0..2 {
-            runtime
-                .run_powershell_script_with_timeout(
-                    "verify-dream-skin.ps1",
-                    &[],
-                    Duration::from_millis(50),
-                    Some(&resolved_node),
-                )
-                .unwrap();
-        }
-        let node_arguments = runner
-            .calls()
-            .iter()
-            .map(|(_, arguments, _)| {
-                arguments
-                    .windows(2)
-                    .find_map(|pair| (pair[0] == "-NodePath").then(|| PathBuf::from(&pair[1])))
-                    .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(node_arguments, vec![resolved_node.clone(), resolved_node]);
-    }
-
-    #[tokio::test]
-    async fn startup_convergence_does_not_probe_again_after_deadline() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let state = root.path().join("state");
-        let runner = Arc::new(RecordingRunner::new(vec![
-            ProcessOutput::success("ChatGPT.exe,1234"),
-            ProcessOutput::success("started"),
-            ProcessOutput::success("ChatGPT.exe,1234"),
-            ProcessOutput::success("ChatGPT.exe,1234"),
-        ]));
-        let runtime =
-            EngineRuntime::with_runner(engine, state, runner.clone(), Duration::from_secs(2))
-                .with_start_transition_timing(Duration::from_millis(20), Duration::from_millis(50));
-
-        let error = runtime.start_skin(true).await.unwrap_err();
-        let calls = runner.calls();
-
-        assert_eq!(error.code(), "RUNTIME_TARGET_NOT_REACHED");
-        assert_eq!(calls.len(), 3);
-        assert!(calls.iter().all(|(_, _, timeout)| !timeout.is_zero()));
-    }
-
-    #[tokio::test]
-    async fn startup_probe_diagnostics_bound_long_error_fields() {
-        let root = tempdir().unwrap();
-        let engine = root.path().join("engine");
-        fs::create_dir_all(engine.join("scripts")).unwrap();
-        let state = root.path().join("state");
-        let message_prefix = "status probe message begins here: ";
-        let detail_prefix = "status probe detail begins here: ";
-        let long_message = format!("{message_prefix}{}", "界".repeat(2_000));
-        let long_detail = format!("{detail_prefix}{}", "错".repeat(2_000));
-        let runner = Arc::new(RecordingRunner::new_results(vec![
-            Ok(ProcessOutput::success("ChatGPT.exe,1234")),
-            Ok(ProcessOutput::success("started")),
-            Err(StudioError::new("LONG_STATUS_ERROR", long_message).with_detail(long_detail)),
-        ]));
-        let runtime =
-            EngineRuntime::with_runner(engine, state.clone(), runner, Duration::from_secs(2))
-                .with_start_transition_timing(Duration::ZERO, Duration::ZERO);
-
-        let error = runtime.start_skin(true).await.unwrap_err();
-        let serialized = error.detail.as_deref().unwrap();
-        let payload: serde_json::Value = serde_json::from_str(&serialized).unwrap();
-        let probe = &payload["probes"][0];
-        let bounded_message = probe["message"].as_str().unwrap();
-        let bounded_detail = probe["detail"].as_str().unwrap();
-        let (status_probe, status_truncated) = runtime_probe_snapshot(&RuntimeStatus {
-            codex_running: true,
-            last_error: Some(format!(
-                "status last error begins here: {}",
-                "误".repeat(2_000)
-            )),
-            ..RuntimeStatus::default()
-        });
-        let bounded_last_error = status_probe["lastError"].as_str().unwrap();
-        let record: serde_json::Value =
-            serde_json::from_slice(&fs::read(state.join("startup-error.log")).unwrap()).unwrap();
-
-        assert_eq!(probe["errorCode"], "LONG_STATUS_ERROR");
-        assert!(bounded_message.starts_with(message_prefix));
-        assert!(bounded_detail.starts_with(detail_prefix));
-        assert!(bounded_message.ends_with("…[truncated]"));
-        assert!(bounded_detail.ends_with("…[truncated]"));
-        assert!(bounded_last_error.starts_with("status last error begins here: "));
-        assert!(bounded_last_error.ends_with("…[truncated]"));
-        assert!(bounded_message.chars().count() <= START_PROBE_TEXT_CHAR_LIMIT);
-        assert!(bounded_detail.chars().count() <= START_PROBE_TEXT_CHAR_LIMIT);
-        assert!(bounded_last_error.chars().count() <= START_PROBE_TEXT_CHAR_LIMIT);
-        assert!(status_truncated);
-        assert_eq!(payload["truncated"], true);
-        assert_eq!(payload["droppedCount"], 0);
-        assert!(serialized.len() <= START_PROBE_DETAIL_BYTE_LIMIT);
-        assert_eq!(record["detail"], serialized);
-    }
-
-    #[test]
-    fn startup_probe_history_reports_dropped_entries_at_its_hard_limit() {
-        let mut history = RuntimeProbeHistory::default();
-        for index in 0..100 {
-            let error = StudioError::new(
-                "REPEATED_STATUS_ERROR",
-                format!("status probe {index} failed"),
-            );
-            let (probe, truncated) = runtime_probe_error(&error);
-            history.push(probe, truncated);
-        }
-
-        let serialized = history.into_detail();
-        let payload: serde_json::Value = serde_json::from_str(&serialized).unwrap();
-        let probes = payload["probes"].as_array().unwrap();
-
-        assert_eq!(probes.len(), 64);
-        assert_eq!(payload["truncated"], true);
-        assert_eq!(payload["droppedCount"], 36);
-        assert_eq!(probes[0]["message"], "status probe 0 failed");
-        assert_eq!(probes[63]["message"], "status probe 99 failed");
-        assert!(serialized.len() <= START_PROBE_DETAIL_BYTE_LIMIT);
-    }
-
-    #[test]
-    fn startup_probe_history_bounds_escaped_serialized_detail() {
-        let escaped_field = "\0".repeat(START_PROBE_TEXT_CHAR_LIMIT);
-        let mut history = RuntimeProbeHistory::default();
-        for _ in 0..START_PROBE_HISTORY_LIMIT {
-            let error = StudioError::new("ESCAPED_STATUS_ERROR", escaped_field.clone())
-                .with_detail(escaped_field.clone());
-            let (probe, truncated) = runtime_probe_error(&error);
-            history.push(probe, truncated);
-        }
-
-        let serialized = history.into_detail();
-        let payload: serde_json::Value = serde_json::from_str(&serialized).unwrap();
-
-        assert!(serialized.len() <= START_PROBE_DETAIL_BYTE_LIMIT);
-        assert_eq!(payload["truncated"], true);
-        assert!(payload["droppedCount"].as_u64().unwrap() > 0);
-        assert!(payload["probes"].as_array().unwrap().len() < START_PROBE_HISTORY_LIMIT);
     }
 
     #[tokio::test]
@@ -4349,68 +3178,7 @@ mod runtime_lifecycle_tests {
 
     struct RecordingRunner {
         outputs: Mutex<VecDeque<StudioResult<ProcessOutput>>>,
-        delays: Mutex<VecDeque<Duration>>,
         calls: Mutex<Vec<(PathBuf, Vec<OsString>, Duration)>>,
-    }
-
-    struct StartNodeReuseRunner {
-        state_root: PathBuf,
-        resolved_node: PathBuf,
-        calls: Mutex<Vec<(PathBuf, Vec<OsString>, Duration)>>,
-    }
-
-    impl StartNodeReuseRunner {
-        fn new(state_root: PathBuf, resolved_node: PathBuf) -> Self {
-            Self {
-                state_root,
-                resolved_node,
-                calls: Mutex::new(Vec::new()),
-            }
-        }
-
-        fn calls(&self) -> Vec<(PathBuf, Vec<OsString>, Duration)> {
-            self.calls.lock().unwrap().clone()
-        }
-    }
-
-    impl ProcessRunner for StartNodeReuseRunner {
-        fn run(
-            &self,
-            program: &Path,
-            arguments: &[OsString],
-            timeout: Duration,
-        ) -> StudioResult<ProcessOutput> {
-            self.calls
-                .lock()
-                .unwrap()
-                .push((program.to_path_buf(), arguments.to_vec(), timeout));
-            if program == Path::new("tasklist.exe") {
-                return Ok(ProcessOutput::success("ChatGPT.exe,1234"));
-            }
-            if arguments
-                .iter()
-                .any(|argument| argument.to_string_lossy().contains("start-dream-skin.ps1"))
-            {
-                fs::create_dir_all(&self.state_root).unwrap();
-                fs::write(self.state_root.join("state.json"), br#"{"port":9335}"#).unwrap();
-                fs::remove_file(&self.resolved_node).unwrap();
-                return Ok(ProcessOutput::success("started"));
-            }
-            if arguments
-                .iter()
-                .any(|argument| argument.to_string_lossy().contains("verify-dream-skin.ps1"))
-            {
-                return Ok(ProcessOutput {
-                    exit_code: 2,
-                    stdout: String::new(),
-                    stderr: "CDP command timed out: Runtime.evaluate".into(),
-                });
-            }
-            Err(StudioError::new(
-                "UNEXPECTED_FAKE_COMMAND",
-                "Unexpected fake process invocation",
-            ))
-        }
     }
 
     impl RecordingRunner {
@@ -4418,21 +3186,9 @@ mod runtime_lifecycle_tests {
             Self::new_results(outputs.into_iter().map(Ok).collect())
         }
 
-        fn new_with_delays(outputs: Vec<ProcessOutput>, delays: Vec<Duration>) -> Self {
-            Self::new_results_with_delays(outputs.into_iter().map(Ok).collect(), delays)
-        }
-
         fn new_results(outputs: Vec<StudioResult<ProcessOutput>>) -> Self {
-            Self::new_results_with_delays(outputs, Vec::new())
-        }
-
-        fn new_results_with_delays(
-            outputs: Vec<StudioResult<ProcessOutput>>,
-            delays: Vec<Duration>,
-        ) -> Self {
             Self {
                 outputs: Mutex::new(outputs.into()),
-                delays: Mutex::new(delays.into()),
                 calls: Mutex::new(Vec::new()),
             }
         }
@@ -4453,9 +3209,6 @@ mod runtime_lifecycle_tests {
                 .lock()
                 .unwrap()
                 .push((program.to_path_buf(), arguments.to_vec(), timeout));
-            if let Some(delay) = self.delays.lock().unwrap().pop_front() {
-                thread::sleep(delay);
-            }
             self.outputs.lock().unwrap().pop_front().unwrap_or_else(|| {
                 Err(StudioError::new(
                     "FAKE_OUTPUT_MISSING",

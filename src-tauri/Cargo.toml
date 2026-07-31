@@ -1,6 +1,6 @@
 [package]
 name = "codex-dream-skin-studio"
-version = "0.2.3"
+version = "0.2.4"
 description = "Visual control center for Codex desktop skins"
 authors = ["aqlteen"]
 edition = "2021"

@@ -129,7 +129,6 @@ export function App() {
             onDismiss={clearError}
             onOpenLogs={openLogDirectory}
             onRetryEnvironment={refreshEnvironment}
-            onRetryStart={() => setRequestedDialog("restart")}
             environmentRetryBusy={busyAction === "refresh-environment"}
           />
         </>

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import type { EnvironmentStatus, RuntimeStatus, StudioErrorPayload } from "./lib/commands";
+import type { EnvironmentStatus, RuntimeStatus } from "./lib/commands";
 import type { RuntimePollingOptions } from "./lib/runtime-polling";
 
 const convertFileSrc = vi.hoisted(() => vi.fn((path: string) => `asset:${path}`));
@@ -15,7 +15,7 @@ vi.mock("./lib/runtime-polling", () => ({ startSingleFlightPolling }));
 const initialize = vi.fn().mockResolvedValue(true);
 const updateDraft = vi.fn();
 const draft = {
-  schemaVersion: 5 as const,
+  schemaVersion: 6 as const,
   id: "yingying",
   name: "萦萦",
   image: "art.jpg",
@@ -79,7 +79,7 @@ const storeState = {
     skinRuntimeReady: false,
     errorCodes: ["NODE_NOT_FOUND"],
   } as EnvironmentStatus,
-  error: null as StudioErrorPayload | null,
+  error: null as null | { code: string; message: string },
   busyAction: null as string | null,
   dirty: true,
   activationPending: false,
@@ -223,53 +223,17 @@ describe("App", () => {
       skinRuntimeReady: true,
       errorCodes: [],
     };
-    storeState.error = { code: "PROCESS_TIMEOUT", message: "启动超时", detail: "C:\\engine\\start.ps1 exit code 1" };
+    storeState.error = { code: "PROCESS_TIMEOUT", message: "启动超时" };
 
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "启动皮肤" }));
     fireEvent.click(screen.getByRole("button", { name: "确认重启并启动" }));
     const dialog = await screen.findByRole("dialog", { name: "启动皮肤" });
-    expect(within(dialog).getByText("皮肤操作等待超时。 请等待 Codex 完成加载后重试；如果再次超时，请打开日志。")).toBeVisible();
-    expect(within(dialog).queryByText(/启动超时|start\.ps1|exit code 1/)).not.toBeInTheDocument();
+    expect(within(dialog).getByText("启动超时")).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "重试" })).toBeEnabled();
     fireEvent.click(within(dialog).getByRole("button", { name: "打开日志" }));
 
     expect(storeState.openLogDirectory).toHaveBeenCalledOnce();
-    storeState.runtime = previousRuntime;
-    storeState.environment = previousEnvironment;
-    storeState.error = previousError;
-  });
-
-  it("routes status-strip startup retry through restart confirmation", async () => {
-    const previousRuntime = storeState.runtime;
-    const previousEnvironment = storeState.environment;
-    const previousError = storeState.error;
-    storeState.startSkin.mockClear();
-    storeState.runtime = {
-      ...previousRuntime,
-      codexRunning: true,
-      skinActive: false,
-      requiresRestartConfirmation: true,
-    };
-    storeState.environment = {
-      ...previousEnvironment,
-      nodePath: "C:\\Program Files\\nodejs\\node.exe",
-      nodeVersion: "24.18.0",
-      nodeSource: "external",
-      skinRuntimeReady: true,
-      errorCodes: [],
-    };
-    storeState.error = { code: "CODEX_STOP_TIMEOUT", message: "raw backend error" };
-
-    render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "重试启动" }));
-
-    expect(await screen.findByRole("dialog", { name: "启动皮肤" })).toBeVisible();
-    expect(storeState.startSkin).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "确认重启并启动" }));
-    expect(storeState.startSkin).toHaveBeenCalledOnce();
-    expect(storeState.startSkin).toHaveBeenCalledWith(true);
-
     storeState.runtime = previousRuntime;
     storeState.environment = previousEnvironment;
     storeState.error = previousError;

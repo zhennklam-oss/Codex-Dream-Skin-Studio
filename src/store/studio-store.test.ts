@@ -44,7 +44,7 @@ const settings: AppSettings = {
 
 function theme(id: string, name: string, opacity = 0.18): ThemeDocument {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     id,
     name,
     image: "art.jpg",

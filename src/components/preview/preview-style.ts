@@ -12,6 +12,9 @@ export interface PreviewStyle {
   rightSidebarOpacity: number;
   bottomBarOpacity: number;
   inputOpacity: number;
+  homeCardOpacity: number;
+  homeCardRadius: number;
+  homeCardHoverBrightness: number;
   artworkVisible: boolean;
 }
 
@@ -29,6 +32,9 @@ export function buildPreviewStyle(theme: ThemeDocument, mode: PreviewMode): Prev
     rightSidebarOpacity: theme.effects.rightSidebarOpacity,
     bottomBarOpacity: theme.effects.bottomBarOpacity,
     inputOpacity: theme.effects.inputOpacity,
+    homeCardOpacity: theme.effects.homeCardOpacity,
+    homeCardRadius: theme.effects.homeCardRadius,
+    homeCardHoverBrightness: theme.effects.homeCardHoverBrightness,
     artworkVisible: taskArtworkVisible,
   };
 }
