@@ -1,0 +1,16 @@
+export const REQUIRED_CAPTURES = [
+  "codex-opening.png",
+  "studio-overview.png",
+  "studio-theme-1.png",
+  "codex-theme-1.png",
+  "studio-theme-2.png",
+  "codex-theme-2.png",
+  "studio-theme-3.png",
+  "codex-theme-3.png",
+  "studio-tone-original.png",
+  "studio-tone-grayscale.png",
+  "studio-tone-duotone.png",
+  "studio-tone-wash.png",
+  "studio-opacity.png",
+  "codex-final.png",
+];

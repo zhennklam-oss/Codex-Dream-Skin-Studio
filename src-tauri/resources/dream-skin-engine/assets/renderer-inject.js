@@ -592,12 +592,29 @@
     root.classList.toggle("dream-layout-bottom-open", surfaceState.bottom.available);
   };
 
+  const resolveShellMain = () => {
+    const legacyMain = document.querySelector("main.main-surface");
+    const main = legacyMain ?? document.querySelector("main");
+    if (!main) return null;
+    const hasChrome = Boolean(
+      legacyMain
+        || document.querySelector("aside.app-shell-left-panel")
+        || document.querySelector('[data-testid="app-shell-header-context-menu-surface"]'),
+    );
+    const hasInteraction = Boolean(
+      document.querySelector(".composer-surface-chrome")
+        || document.querySelector('[role="main"]')
+        || document.querySelector('[data-testid="exec-shell-body"]'),
+    );
+    return hasChrome && hasInteraction ? main : null;
+  };
+
   const ensure = () => {
     if (window.__CODEX_DREAM_SKIN_DISABLED__) return;
     const root = document.documentElement;
     if (!root || !document.body) return;
 
-    const shellMain = document.querySelector("main.main-surface");
+    const shellMain = resolveShellMain();
     setBodyAppRoot(shellMain);
     if (!shellMain) {
       if (!root.classList.contains("codex-dream-skin")) clearSkinDom();

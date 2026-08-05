@@ -1,0 +1,27 @@
+{
+  "name": "codex-dream-skin-one-minute-demo",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "studio": "remotion studio src/index.ts --no-open",
+    "render": "remotion render src/index.ts DreamSkinDemo renders/codex-dream-skin-demo.mp4 --codec=h264 --audio-codec=aac --crf=18 --chrome-mode=chrome-for-testing --browser-executable=\"C:\\Users\\aqlte\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe\"",
+    "music": "python scripts/generate-music.py",
+    "assets": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-public-assets.ps1",
+    "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-render.ps1"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.484",
+    "@remotion/media": "4.0.484",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "remotion": "4.0.484"
+  },
+  "devDependencies": {
+    "@types/react": "18.2.79",
+    "@types/react-dom": "18.2.25",
+    "typescript": "5.7.3",
+    "vitest": "3.2.4"
+  }
+}

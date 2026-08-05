@@ -1,0 +1,91 @@
+{
+  "capturedAt": "2026-07-24T03:23:02.060Z",
+  "originalThemeRestored": true,
+  "fallbackReason": "fetch failed",
+  "items": [
+    {
+      "file": "codex-opening.png",
+      "source": "docs-verification",
+      "simulated": true,
+      "privacyRedacted": true
+    },
+    {
+      "file": "studio-overview.png",
+      "source": "docs-verification",
+      "simulated": true,
+      "privacyRedacted": false
+    },
+    {
+      "file": "studio-theme-1.png",
+      "source": "docs-verification",
+      "simulated": true,
+      "privacyRedacted": false
+    },
+    {
+      "file": "codex-theme-1.png",
+      "source": "local-theme-artwork",
+      "simulated": true,
+      "privacyRedacted": true
+    },
+    {
+      "file": "studio-theme-2.png",
+      "source": "docs-verification",
+      "simulated": true,
+      "privacyRedacted": false
+    },
+    {
+      "file": "codex-theme-2.png",
+      "source": "local-theme-artwork",
+      "simulated": true,
+      "privacyRedacted": true
+    },
+    {
+      "file": "studio-theme-3.png",
+      "source": "docs-verification",
+      "simulated": true,
+      "privacyRedacted": false
+    },
+    {
+      "file": "codex-theme-3.png",
+      "source": "local-theme-artwork",
+      "simulated": true,
+      "privacyRedacted": true
+    },
+    {
+      "file": "studio-tone-original.png",
+      "source": "docs-verification",
+      "simulated": true,
+      "privacyRedacted": false
+    },
+    {
+      "file": "studio-tone-grayscale.png",
+      "source": "docs-verification",
+      "simulated": true,
+      "privacyRedacted": false
+    },
+    {
+      "file": "studio-tone-duotone.png",
+      "source": "docs-verification",
+      "simulated": true,
+      "privacyRedacted": false
+    },
+    {
+      "file": "studio-tone-wash.png",
+      "source": "docs-verification",
+      "simulated": true,
+      "privacyRedacted": false
+    },
+    {
+      "file": "studio-opacity.png",
+      "source": "docs-verification",
+      "simulated": true,
+      "privacyRedacted": false
+    },
+    {
+      "file": "codex-final.png",
+      "source": "docs-verification",
+      "simulated": true,
+      "privacyRedacted": true
+    }
+  ]
+}

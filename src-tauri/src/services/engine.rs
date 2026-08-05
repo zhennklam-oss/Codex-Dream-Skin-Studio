@@ -528,6 +528,17 @@ impl EngineRuntime {
             &[OsString::from("-RecoverWatcherOnly")],
         )?;
         if output.exit_code == 4 {
+            if current.starting {
+                return Ok(RuntimeStatus {
+                    starting: false,
+                    skin_active: false,
+                    last_error: Some(
+                        "Dream Skin watcher stopped and could not be recovered because the saved Codex CDP identity is unavailable. Retry starting the skin or open the logs for details."
+                            .into(),
+                    ),
+                    ..current
+                });
+            }
             return Ok(current);
         }
         ensure_process_success("Recover Dream Skin watcher", output)?;
@@ -1748,6 +1759,42 @@ mod runtime_lifecycle_tests {
         let status = runtime.reconcile_runtime().await.unwrap();
 
         assert!(status.requires_restart_confirmation);
+    }
+
+    #[tokio::test]
+    async fn unavailable_cdp_ends_pending_start_with_surface_error() {
+        let root = tempdir().unwrap();
+        let engine = root.path().join("engine");
+        fs::create_dir_all(engine.join("scripts")).unwrap();
+        let state = root.path().join("state");
+        fs::create_dir_all(&state).unwrap();
+        fs::write(state.join("state.json"), br#"{"port":9335}"#).unwrap();
+        let renderer_pending = ProcessOutput {
+            exit_code: 1,
+            stdout: String::new(),
+            stderr: "No verified Codex renderer on 127.0.0.1:9335: This operation was aborted"
+                .into(),
+        };
+        let runner = Arc::new(RecordingRunner::new(vec![
+            ProcessOutput::success("ChatGPT.exe,1234"),
+            renderer_pending,
+            ProcessOutput {
+                exit_code: 4,
+                stdout: String::new(),
+                stderr: "saved Codex CDP identity is unavailable".into(),
+            },
+        ]));
+        let runtime = EngineRuntime::with_runner(engine, state, runner, Duration::from_secs(2));
+
+        let status = runtime.reconcile_runtime().await.unwrap();
+
+        assert!(!status.starting);
+        assert!(!status.skin_active);
+        assert!(status
+            .last_error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("watcher"));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

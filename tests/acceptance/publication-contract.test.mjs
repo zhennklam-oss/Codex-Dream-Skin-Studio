@@ -89,7 +89,7 @@ test("public documentation is bilingual, current, and explicitly unofficial", as
     assert.match(section, /OpenAI\.Codex/);
     assert.match(section, /Node\.js 24\.18\.0/);
     assert.match(section, /Node\.js 22\+/);
-    assert.match(section, /0\.2\.4/);
+    assert.match(section, /0\.2\.5/);
     assert.match(section, /Engine 1\.7\.0/);
     assert.match(section, /Theme schema 6/);
     assert.match(section, /PNG/);
@@ -105,7 +105,7 @@ test("public documentation is bilingual, current, and explicitly unofficial", as
     assert.match(section, /npm run tauri build/);
     assert.match(
       section,
-      /src-tauri\\target\\release\\bundle\\nsis\\Codex Dream Skin Studio_0\.2\.4_x64-setup\.exe/,
+      /src-tauri\\target\\release\\bundle\\nsis\\Codex Dream Skin Studio_0\.2\.5_x64-setup\.exe/,
     );
   }
 
@@ -168,7 +168,6 @@ test("public snapshot has one clean commit and no private paths", async (context
   ], { cwd: root, encoding: "utf8", stdio: "pipe" });
 
   await assert.rejects(fs.access(path.join(snapshot, "docs", "verification")));
-  await assert.rejects(fs.access(path.join(snapshot, "video")));
   await fs.access(path.join(snapshot, "tests", "acceptance", "runtime-lifecycle-live.ps1"));
   assert.equal(execFileSync("git", ["rev-list", "--count", "HEAD"], { cwd: snapshot, encoding: "utf8" }).trim(), "1");
   assert.equal(execFileSync("git", ["status", "--porcelain"], { cwd: snapshot, encoding: "utf8" }).trim(), "");

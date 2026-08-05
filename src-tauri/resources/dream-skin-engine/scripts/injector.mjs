@@ -14,7 +14,7 @@ const CDP_CLOSE_TIMEOUT_MS = 250;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 const BROWSER_ID_PATTERN = /^[A-Za-z0-9._-]{1,200}$/;
 
-class CdpIdentityMismatchError extends Error {}
+export class CdpIdentityMismatchError extends Error {}
 
 export class OperationDeadline {
   constructor(timeoutMs, now = () => Date.now()) {
@@ -401,6 +401,23 @@ async function connectBrowserIdentityAnchor(port, expectedBrowserId, deadline = 
   return new BrowserIdentityAnchor(validatedDebuggerUrl(version, port), deadline).open();
 }
 
+export async function recoverBrowserIdentityAnchor(anchor, port, expectedBrowserId, operations = {}) {
+  if (anchor && !anchor.closed) return { status: "ready", anchor };
+  const connect = operations.connectBrowserIdentityAnchor ?? connectBrowserIdentityAnchor;
+  try {
+    return {
+      status: "recovered",
+      anchor: await connect(port, expectedBrowserId),
+    };
+  } catch (error) {
+    return {
+      status: error instanceof CdpIdentityMismatchError ? "mismatch" : "retry",
+      anchor,
+      error,
+    };
+  }
+}
+
 const THEME_CHOICES = {
   appearance: new Set(["auto", "light", "dark"]),
   safeArea: new Set(["auto", "left", "right", "center", "none"]),
@@ -631,19 +648,29 @@ async function readThemeSourceStamp(loadedTheme) {
   return `${themeStat.size}:${themeStat.mtimeMs}:${imageStat.size}:${imageStat.mtimeMs}`;
 }
 
+export function classifyCodexDocument(documentLike, protocol) {
+  const markers = {
+    legacyShell: Boolean(documentLike.querySelector("main.main-surface")),
+    main: Boolean(documentLike.querySelector("main")),
+    sidebar: Boolean(documentLike.querySelector("aside.app-shell-left-panel")),
+    header: Boolean(documentLike.querySelector('[data-testid="app-shell-header-context-menu-surface"]')),
+    composer: Boolean(documentLike.querySelector(".composer-surface-chrome")),
+    roleMain: Boolean(documentLike.querySelector('[role="main"]')),
+    execShell: Boolean(documentLike.querySelector('[data-testid="exec-shell-body"]')),
+  };
+  const hasMain = markers.legacyShell || markers.main;
+  const hasChrome = markers.legacyShell || markers.sidebar || markers.header;
+  const hasInteraction = markers.composer || markers.roleMain || markers.execShell;
+  return {
+    markers,
+    codex: protocol === "app:" && hasMain && hasChrome && hasInteraction,
+  };
+}
+
 async function probeSession(session) {
-  return session.evaluate(`(() => {
-    const markers = {
-      shell: Boolean(document.querySelector('main.main-surface')),
-      sidebar: Boolean(document.querySelector('aside.app-shell-left-panel')),
-      composer: Boolean(document.querySelector('.composer-surface-chrome')),
-      main: Boolean(document.querySelector('[role="main"]')),
-    };
-    return {
-      markers,
-      codex: location.protocol === 'app:' && markers.shell && (markers.composer || markers.main),
-    };
-  })()`);
+  return session.evaluate(
+    `(${classifyCodexDocument.toString()})(document, location.protocol)`,
+  );
 }
 
 async function waitForCodexProbe(session, timeoutMs = 1800) {
@@ -820,10 +847,17 @@ export function rendererVerificationPass(result, hasRoleMain) {
       (!result.suggestionsPresent || (result.cards.length >= 2 && result.cards.length <= 4))));
 }
 
+export function resolveVerificationMain(documentLike) {
+  return documentLike?.querySelector?.('main.main-surface') ??
+    documentLike?.querySelector?.('main') ?? null;
+}
+
 async function verifySession(session) {
   const rendererVerificationPassSource = rendererVerificationPass.toString();
+  const resolveVerificationMainSource = resolveVerificationMain.toString();
   return session.evaluate(`(() => {
     const rendererVerificationPass = ${rendererVerificationPassSource};
+    const resolveVerificationMain = ${resolveVerificationMainSource};
     const box = (node) => {
       if (!node) return null;
       const r = node.getBoundingClientRect();
@@ -855,7 +889,7 @@ async function verifySession(session) {
       cards,
       composer: box(document.querySelector('.composer-surface-chrome')),
       sidebar: box(document.querySelector('aside.app-shell-left-panel')),
-      mainSurface: box(document.querySelector('main.main-surface')),
+      mainSurface: box(resolveVerificationMain(document)),
       bottomPanel: box(bottomPanel),
       bottomPanelVisible: isVisible(bottomPanel),
       surfaces,
@@ -972,7 +1006,7 @@ async function runOneShot(options) {
 }
 
 async function runWatch(options) {
-  const identityAnchor = await connectBrowserIdentityAnchor(options.port, options.browserId);
+  let identityAnchor = await connectBrowserIdentityAnchor(options.port, options.browserId);
   const sessions = new Map();
   const earlyScripts = new Map();
   const fallbackTargets = new Map();
@@ -981,11 +1015,45 @@ async function runWatch(options) {
   let stopping = false;
   let listFailures = 0;
   let lastListErrorLogAt = 0;
+  let identityRecoveryFailures = 0;
+  let lastIdentityRecoveryErrorLogAt = 0;
   let lastThemeErrorLogAt = 0;
   let lastStrongThemeAuditAt = 0;
   let loadedPayload = null;
   let paused = false;
   const stop = () => { stopping = true; };
+  const refreshIdentityAnchor = async () => {
+    const identityResult = await recoverBrowserIdentityAnchor(
+      identityAnchor,
+      options.port,
+      options.browserId,
+    );
+    if (identityResult.status === "ready") return true;
+    if (identityResult.status === "recovered") {
+      identityAnchor.close();
+      identityAnchor = identityResult.anchor;
+      identityRecoveryFailures = 0;
+      console.error("[dream-skin] CDP browser identity connection recovered");
+      return true;
+    }
+    if (identityResult.status === "mismatch") {
+      console.error(`[dream-skin] ${identityResult.error.message}; watcher is stopping`);
+      process.exitCode = 3;
+      stopping = true;
+      return false;
+    }
+
+    identityRecoveryFailures += 1;
+    const retryMs = Math.min(10000, 1000 * (2 ** Math.min(identityRecoveryFailures - 1, 4)));
+    const now = Date.now();
+    if (identityRecoveryFailures === 1 || now - lastIdentityRecoveryErrorLogAt >= 30000) {
+      console.error(`[dream-skin] identity recovery failed: ${identityResult.error.message}; retrying in ${retryMs}ms`);
+      lastIdentityRecoveryErrorLogAt = now;
+    }
+    await writeWatcherHeartbeat(options.heartbeatFile);
+    await new Promise((resolve) => setTimeout(resolve, retryMs));
+    return false;
+  };
   const rejectTarget = (target, baseDelayMs, error = null) => {
     const previous = targetFailures.get(target.id) ?? { failures: 0, lastLogAt: 0 };
     const failures = previous.failures + 1;
@@ -1022,11 +1090,7 @@ async function runWatch(options) {
     lastStrongThemeAuditAt = Date.now();
     paused = await fileExists(options.pauseFile);
     while (!stopping) {
-      if (identityAnchor.closed) {
-        console.error("[dream-skin] original CDP browser identity closed; watcher is stopping instead of reconnecting");
-        process.exitCode = 3;
-        break;
-      }
+      if (!await refreshIdentityAnchor()) continue;
       let targets = [];
       try {
         targets = await listAppTargets(options.port);
@@ -1073,6 +1137,7 @@ async function runWatch(options) {
       }
       const pauseChanged = nextPaused !== paused;
       const payloadChanged = !nextPaused && nextPayload !== loadedPayload;
+      if ((pauseChanged || payloadChanged) && !await refreshIdentityAnchor()) continue;
       loadedPayload = nextPayload;
       paused = nextPaused;
 
@@ -1136,14 +1201,18 @@ async function runWatch(options) {
       }
 
       for (const target of targets) {
-        if (identityAnchor.closed) break;
+        if (!await refreshIdentityAnchor()) break;
         if (sessions.has(target.id)) continue;
         if ((targetFailures.get(target.id)?.until ?? 0) > Date.now()) continue;
         let session;
         let earlyScriptId = null;
         try {
           session = await connectTarget(target, options.port);
-          if (identityAnchor.closed) throw new CdpIdentityMismatchError("Original CDP browser identity closed");
+          if (!await refreshIdentityAnchor()) {
+            await closeSessionAndWait(session);
+            session = null;
+            break;
+          }
           let earlyInjectionFallback = false;
           if (!paused) {
             try {
@@ -1168,9 +1237,14 @@ async function runWatch(options) {
             session.close();
             continue;
           }
+          if (!await refreshIdentityAnchor()) {
+            await removeEarlyPayload(session, earlyScriptId);
+            await closeSessionAndWait(session);
+            session = null;
+            break;
+          }
           fallbackTargets.set(target.id, earlyInjectionFallback);
           if (earlyInjectionFallback) attachLoadFallback(target.id, target, session);
-          if (identityAnchor.closed) throw new CdpIdentityMismatchError("Original CDP browser identity closed");
           let earlyApplied = false;
           if (!paused && !earlyInjectionFallback) {
             earlyApplied = await session.evaluate(
@@ -1188,7 +1262,6 @@ async function runWatch(options) {
           fallbackTargets.delete(target.id);
           fallbackListeners.delete(target.id);
           session?.close();
-          if (identityAnchor.closed || error instanceof CdpIdentityMismatchError) break;
           rejectTarget(target, 2500, error);
         }
       }

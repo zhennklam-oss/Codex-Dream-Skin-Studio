@@ -59,6 +59,90 @@ test("watcher-only recovery preserves an existing paused state", async () => {
   );
 });
 
+test("identity recovery reuses an open anchor", async () => {
+  const { recoverBrowserIdentityAnchor } = await import(injectorUrl);
+  const anchor = { closed: false };
+  let connections = 0;
+  const result = await recoverBrowserIdentityAnchor(anchor, 9335, "test-browser", {
+    async connectBrowserIdentityAnchor() { connections += 1; },
+  });
+
+  assert.equal(result.status, "ready");
+  assert.strictEqual(result.anchor, anchor);
+  assert.equal(connections, 0);
+});
+
+test("identity recovery replaces a closed anchor for the same browser", async () => {
+  const { recoverBrowserIdentityAnchor } = await import(injectorUrl);
+  const replacement = { closed: false };
+  const result = await recoverBrowserIdentityAnchor({ closed: true }, 9335, "test-browser", {
+    async connectBrowserIdentityAnchor(port, browserId) {
+      assert.equal(port, 9335);
+      assert.equal(browserId, "test-browser");
+      return replacement;
+    },
+  });
+
+  assert.equal(result.status, "recovered");
+  assert.strictEqual(result.anchor, replacement);
+});
+
+test("identity recovery retries transient failures but rejects a changed browser", async () => {
+  const { recoverBrowserIdentityAnchor, CdpIdentityMismatchError } = await import(injectorUrl);
+  const transient = await recoverBrowserIdentityAnchor({ closed: true }, 9335, "test-browser", {
+    async connectBrowserIdentityAnchor() { throw new Error("This operation was aborted"); },
+  });
+  assert.equal(transient.status, "retry");
+  assert.match(transient.error.message, /operation was aborted/);
+
+  const mismatch = await recoverBrowserIdentityAnchor({ closed: true }, 9335, "test-browser", {
+    async connectBrowserIdentityAnchor() {
+      throw new CdpIdentityMismatchError("CDP browser identity changed");
+    },
+  });
+  assert.equal(mismatch.status, "mismatch");
+  assert.match(mismatch.error.message, /identity changed/);
+});
+
+test("watch mode recovers a closed identity anchor without weakening mismatch protection", async () => {
+  const source = await fs.readFile(injectorPath, "utf8");
+
+  assert.doesNotMatch(source, /watcher is stopping instead of reconnecting/);
+  assert.match(source, /const refreshIdentityAnchor = async \(\) =>/);
+  assert.match(source, /await refreshIdentityAnchor\(\)/);
+  assert.match(source, /identity recovery failed: .*retrying in/);
+  assert.match(source, /identityResult\.status === "mismatch"[\s\S]*?process\.exitCode = 3/);
+});
+
+test("stable semantic shell classification accepts main renderers and rejects overlays", async () => {
+  const { classifyCodexDocument } = await import(injectorUrl);
+  const documentWith = (...selectors) => ({
+    querySelector(selector) { return selectors.includes(selector) ? {} : null; },
+  });
+
+  const dynamic = classifyCodexDocument(documentWith(
+    "main",
+    "aside.app-shell-left-panel",
+    ".composer-surface-chrome",
+  ), "app:");
+  assert.equal(dynamic.codex, true);
+
+  const legacy = classifyCodexDocument(documentWith(
+    "main.main-surface",
+    "main",
+    '[role="main"]',
+  ), "app:");
+  assert.equal(legacy.codex, true);
+
+  const overlay = classifyCodexDocument(documentWith("main"), "app:");
+  assert.equal(overlay.codex, false);
+  assert.equal(classifyCodexDocument(documentWith(
+    "main",
+    "aside.app-shell-left-panel",
+    ".composer-surface-chrome",
+  ), "https:").codex, false);
+});
+
 async function runInjector(args) {
   const child = spawn(process.execPath, [injectorPath, ...args], {
     windowsHide: true,

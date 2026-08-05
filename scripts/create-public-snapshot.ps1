@@ -28,7 +28,6 @@ try {
     'archive', '--format=tar', "--output=$temporaryArchive", 'HEAD', '--', '.',
     ':(exclude)docs/verification/**',
     ':(exclude)docs/superpowers/**',
-    ':(exclude)video/**',
     ':(exclude)node_modules/**',
     ':(exclude)src-tauri/target/**'
   )

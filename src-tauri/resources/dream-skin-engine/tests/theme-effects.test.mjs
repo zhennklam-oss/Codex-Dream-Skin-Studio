@@ -132,6 +132,16 @@ test("verification accepts the semantic home marker and rejects an off-screen co
   assert.equal(rendererVerificationPass({ ...currentHome, homeMarker: null }, true), false);
 });
 
+test("verification resolves a dynamically-classed Codex main surface", async () => {
+  const { resolveVerificationMain } = await import(pathToFileURL(injectorPath).href);
+  const dom = new JSDOM(`<!doctype html><main class="_MainContentSurface_zbk1f_63"></main>`);
+
+  assert.equal(
+    resolveVerificationMain(dom.window.document),
+    dom.window.document.querySelector("main"),
+  );
+});
+
 async function withTheme(theme, callback) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "dream-effects-"));
   try {
@@ -377,6 +387,7 @@ async function createRendererHarness(theme, options = {}) {
     sidebarPresent: options.sidebarPresent ?? true,
     rightPresent: options.rightPresent ?? false,
     bottomPresent: options.bottomPresent ?? true,
+    composerPresent: options.composerPresent ?? true,
   };
   const properties = new Map();
   const elements = new Map();
@@ -485,7 +496,7 @@ async function createRendererHarness(theme, options = {}) {
   const selectionPortal = makeElement("div", undefined, { class: "fixed z-50" });
   selectionPortal.id = "selection-portal";
   const main = makeElement("main", { x: 220, y: 25, width: 1080, height: 805 }, {
-    class: "main-surface",
+    class: options.mainClass ?? "main-surface",
   });
   const sidebar = makeElement("aside", { x: 0, y: 25, width: 220, height: 805 }, {
     class: "app-shell-left-panel",
@@ -543,6 +554,7 @@ async function createRendererHarness(theme, options = {}) {
     if (node === sidebar && !layout.sidebarPresent) return false;
     if ((node === rightPanel || node === reviewTab) && !layout.rightPresent) return false;
     if ([bottomPanel, bottomTab, terminal].includes(node) && !layout.bottomPresent) return false;
+    if (node === composer && !layout.composerPresent) return false;
     return node.parentElement ? isPresent(node.parentElement) : true;
   }
 
@@ -707,6 +719,28 @@ test("renderer falls back from invalid home card runtime values", async () => {
   assert.equal(properties.get("--dream-home-card-hover-brightness"), "1.1");
 });
 
+test("renderer accepts a generated main class when stable shell markers exist", async () => {
+  const harness = await createRendererHarness(baseTheme(), {
+    mainClass: "_MainContentSurface_example_63",
+  });
+
+  assert.equal(harness.root.classList.contains("codex-dream-skin"), true);
+  assert.equal(harness.main.classList.contains("dream-surface-main"), true);
+  assert.ok(harness.elements.has("codex-dream-skin-style"));
+  assert.ok(harness.elements.has("codex-dream-skin-chrome"));
+});
+
+test("renderer rejects a shell without stable interaction markers", async () => {
+  const harness = await createRendererHarness(baseTheme(), {
+    composerPresent: false,
+  });
+
+  assert.equal(harness.root.classList.contains("codex-dream-skin"), false);
+  assert.equal(harness.main.classList.contains("dream-surface-main"), false);
+  assert.equal(harness.elements.has("codex-dream-skin-style"), false);
+  assert.equal(harness.elements.has("codex-dream-skin-chrome"), false);
+});
+
 test("renderer maps semantic side, review, bottom, and composer surfaces independently", async () => {
   const harness = await createRendererHarness(baseTheme(), {
     sidebarPresent: false,
@@ -849,6 +883,20 @@ test("main surface preserves native selection and attachment overlays", async ()
   assert.ok(mainSurfaceRule, "missing main surface rule");
   assert.doesNotMatch(mainSurfaceRule[1], /overflow:\s*(?:hidden|clip)/);
   assert.doesNotMatch(mainSurfaceRule[1], /isolation:\s*isolate/);
+});
+
+test("immersive task chrome follows the semantic main surface marker", async () => {
+  const css = await fs.readFile(cssPath, "utf8");
+  const immersiveStart = css.indexOf("/* A 16:9 or wider image is painted once");
+  const immersiveEnd = css.indexOf("@media (max-width: 900px)", immersiveStart);
+  const immersiveCss = css.slice(immersiveStart, immersiveEnd);
+
+  assert.ok(immersiveStart >= 0 && immersiveEnd > immersiveStart, "missing immersive CSS section");
+  assert.doesNotMatch(immersiveCss, /main\.main-surface/);
+  assert.match(
+    immersiveCss,
+    /main\.dream-surface-main[\s\S]*\.thread-scroll-container \.bg-gradient-to-t\.from-token-main-surface-primary[\s\S]*background:\s*transparent/,
+  );
 });
 
 test("chrome stays below the app root and native portals", async () => {
